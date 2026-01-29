@@ -1,1 +1,5 @@
 /target
+
+# In the long run we almost certainly want this in the repo.
+# But it doesn't make much sense while the circuits keep changing.
+/zkey

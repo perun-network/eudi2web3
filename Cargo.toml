@@ -4,3 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.100"
+ark-bls12-381 = { version = "0.5.0", default-features = false }
+ark-bn254 = { version = "0.5.0", default-features = false }
+ark-ec = { version = "0.5.0", default-features = false }
+ark-ff = { version = "0.5.0", default-features = false }
+ark-groth16 = { version = "0.5.0", default-features = false }
+ark-relations = { version = "0.5.1", default-features = false }
+circom-prover = { version = "0.1.4", features = ["rapidsnark"] }
+num-bigint = { version = "0.4.6", default-features = false }
+rand = "0.8"
+rust-witness = { version = "0.1.6", default-features = false }
+
+[build-dependencies]
+rust-witness = { version = "0.1.6", default-features = false }
