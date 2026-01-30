@@ -5,11 +5,22 @@ mod witness {
     rust_witness::witness!(dlpexample);
 }
 
+mod mdoc;
 mod prover;
 mod sdjwt;
 
 fn main() {
     sdjwt::explore();
+
+    println!();
+    println!("{}", "-".repeat(64));
+    println!();
+
+    mdoc::explore();
+
+    println!();
+    println!("{}", "-".repeat(64));
+    println!();
 
     /////////////////////////////////////////////////////////////////////////////////////
     // ZK Circuit (proof creation)

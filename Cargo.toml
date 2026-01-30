@@ -16,11 +16,16 @@ num-bigint = { version = "0.4.6", default-features = false }
 rand = "0.8"
 rust-witness = { version = "0.1.6", default-features = false }
 
-# For testing with credentials
+# For exploring SD-JWT credentials
 sd-jwt-rs = "0.7.1"
 jsonwebtoken = "9"
 serde_json = "1.0.149"
 base64 = "0.22.1"
+
+# For exploring mDoc credentials
+bhmdoc = "0.5.0"
+bh-jws-utils = "0.6.1"
+bhx5chain = { version = "0.3.2", features = ["test-utils"] }
 
 [build-dependencies]
 rust-witness = { version = "0.1.6", default-features = false }
