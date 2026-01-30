@@ -4,13 +4,11 @@ use bh_jws_utils::{Es256Signer, Es256Verifier, SignerWithChain};
 use bhmdoc::{
     Device, DeviceKey, Issuer,
     models::{
-        Claims, DateTime, DeviceRequest, DocRequest,
+        Claims, DeviceRequest, DocRequest,
         data_retrieval::{common::DocType, device_retrieval::issuer_auth::ValidityInfo},
     },
 };
-use bhx5chain::X5Chain;
 use rand::thread_rng;
-use serde_json::json;
 
 const DOCUMENT_TYPE_PID: &str = "eu.europa.ec.eudi.pid.1";
 
