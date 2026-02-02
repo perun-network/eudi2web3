@@ -11,7 +11,7 @@ ark-ec = { version = "0.5.0", default-features = false }
 ark-ff = { version = "0.5.0", default-features = false }
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-relations = { version = "0.5.1", default-features = false }
-circom-prover = { version = "0.1.4", features = ["rapidsnark"] }
+circom-prover = { version = "0.1.4" }
 num-bigint = { version = "0.4.6", default-features = false }
 rand = "0.8"
 rust-witness = { version = "0.1.6", default-features = false }
@@ -26,6 +26,13 @@ base64 = "0.22.1"
 bhmdoc = "0.5.0"
 bh-jws-utils = "0.6.1"
 bhx5chain = { version = "0.3.2", features = ["test-utils"] }
+
+# For verifying SD-JWT credentials in Rust without using the library
+serde = "1.0.228"
+ecdsa = "0.16.9"
+ring = "0.17.14"
+pem = "3.0.6"
+sha2 = "0.10.9"
 
 [build-dependencies]
 rust-witness = { version = "0.1.6", default-features = false }
