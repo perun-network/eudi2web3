@@ -1,0 +1,9 @@
+[submodule "circuits/circom-ecdsa-p256"]
+	path = circuits/circom-ecdsa-p256
+	url = https://github.com/privacy-ethereum/circom-ecdsa-p256.git
+[submodule "circuits/zk-email-verify"]
+	path = circuits/zk-email-verify
+	url = https://github.com/zkemail/zk-email-verify.git
+[submodule "circuits/circomlib"]
+	path = circuits/circomlib
+	url = https://github.com/iden3/circomlib.git
