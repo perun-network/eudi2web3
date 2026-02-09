@@ -12,3 +12,11 @@ The easiest way to perform the trusted setup is with snarkjs:
 npm install -g snarkjs@latest
 ```
 
+- [ ] Add submodule initialization
+- [ ] Add run `yarn` in these directories
+    - circuits/zk-email-verify/packages/circuits
+      NOTE: I'm not sure if this one is required
+    - circuits/circom-ecdsa-p256
+    - circuits/circom-ecdsa-p256/circuits/circom-pairing
+- [ ] Add command to manually compile a circuit (instead of going through build.rs)
+

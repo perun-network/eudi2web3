@@ -8,6 +8,7 @@ use ark_ff::{PrimeField as _, UniformRand as _};
 use ark_groth16::{Groth16, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
 use circom_prover::prover::{
+    CircomProof, ProofLib,
     ark_circom::{CircomReduction, ZkeyHeaderReader, read_zkey},
     circom::Proof,
 };
@@ -29,8 +30,9 @@ mod witness {
 // The implementation provided by circom-prover also spawns a separate thread for generating the
 // witness, which does not really make sense as it does nothing in paralell besides reading the
 // ZKey, which can be done once in the beginning as shown here.
-pub struct MultiuseProver {
+pub struct MultiuseProver<'a> {
     zkey: PKey,
+    pub zkey_path: &'a str,
 }
 
 enum PKey {
@@ -44,8 +46,8 @@ pub struct ProofWithPubInput {
     pub pub_input: Vec<BigUint>,
 }
 
-impl MultiuseProver {
-    pub fn new(zkey_path: &str) -> Result<Self> {
+impl<'z> MultiuseProver<'z> {
+    pub fn new(zkey_path: &'z str) -> Result<Self> {
         // First: Figure out which key we need. For some reason circom-prover doesn't use an enum
         // and doesn't do this for us.
         // It is a bit odd to open the file twice, but that seems to be the easiest way and is what
@@ -65,23 +67,26 @@ impl MultiuseProver {
             return Err(anyhow!("Unexpected curve in zkey"));
         };
 
-        Ok(Self { zkey })
+        Ok(Self { zkey, zkey_path })
     }
 
-    // I'd love to allow &str for keys, but the to_witness functions expect owned Strings. Even
-    // though that's not strictly neccessary. The circom-prover implementation goes through even
-    // more steps, json deserialization and multiple allocations to achieve the same (if
-    // RustWitness is used.)
-    pub fn prove<I>(
-        &self,
-        to_witness: impl FnOnce(I) -> Vec<BigInt>,
-        input: I,
-    ) -> Result<ProofWithPubInput>
-    where
-        I: IntoIterator<Item = (String, Vec<BigInt>)>,
-    {
-        let witness: Vec<BigInt> = to_witness(input);
+    pub fn prove(&self, witness: Vec<BigInt>) -> Result<(ProofWithPubInput, bool)> {
+        let proof = self.prove_noverify(witness)?;
 
+        // Verify the proof so we know it is actually useful/correct
+        let valid = circom_prover::CircomProver::verify(
+            circom_prover::prover::ProofLib::Arkworks,
+            circom_prover::prover::CircomProof {
+                proof: proof.proof.clone(),
+                pub_inputs: circom_prover::prover::PublicInputs(proof.pub_input[1..].to_vec()),
+            },
+            self.zkey_path.to_owned(),
+        )?;
+
+        Ok((proof, valid))
+    }
+
+    pub fn prove_noverify(&self, witness: Vec<BigInt>) -> Result<ProofWithPubInput> {
         // PERFORMANCE: This does mean we take up a bit more peak memory:
         //     public input, witness, transformed witness
         // but less memory during proof generation:
@@ -106,6 +111,22 @@ impl MultiuseProver {
 
         // circom_prover::CircomProver::prove(proof_lib, wit_fn, json_input_str, zkey_path)
         Ok(ProofWithPubInput { proof, pub_input })
+    }
+
+    // I'd love to allow &str for keys, but the to_witness functions expect owned Strings. Even
+    // though that's not strictly neccessary. The circom-prover implementation goes through even
+    // more steps, json deserialization and multiple allocations to achieve the same (if
+    // RustWitness is used.)
+    pub fn prove2_noverify<I>(
+        &self,
+        to_witness: impl FnOnce(I) -> Vec<BigInt>,
+        input: I,
+    ) -> Result<ProofWithPubInput>
+    where
+        I: IntoIterator<Item = (String, Vec<BigInt>)>,
+    {
+        let witness: Vec<BigInt> = to_witness(input);
+        self.prove_noverify(witness)
     }
 }
 

@@ -19,7 +19,7 @@ kHmPRiazukxPLb6ilpRAewjW8nihRANCAATDskChT+Altkm9X7MI69T3IUmrQU0L
 -----END PRIVATE KEY-----
 ";
 
-const ISSUER_PUBLIC: &[u8] = b"
+pub const ISSUER_PUBLIC: &[u8] = b"
 -----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEw7JAoU/gJbZJvV+zCOvU9yFJq0FN
 C/edCMRM78P8eQTBCDUTK1ywSYaszvQZvneiW6gNtWEJndSreEcyyUdVvg==
@@ -27,7 +27,8 @@ C/edCMRM78P8eQTBCDUTK1ywSYaszvQZvneiW6gNtWEJndSreEcyyUdVvg==
 ";
 
 // Method used to explore SD-JWT credential creation and its format.
-pub fn explore() {
+// Returns a SD-JWT Presentation
+pub fn explore() -> String {
     // let issuer_secret = [0; 32];
     // let issuer_key = EncodingKey::from_secret(&issuer_secret);
     let issuer_key = EncodingKey::from_ec_pem(ISSUER_PRIVATE).unwrap();
@@ -163,6 +164,8 @@ pub fn explore() {
     // Raw Output of SHA256 hash of base64url encoded disclosure (segment 1..n-1) is base64url encoded.
     // - Do not base64 encode the hex of the hash (Cyberchef outputs the hex by default)
     // - By default sha2-256 is used and that is (almost certainly) set at issuance time, not on presentation time.
+
+    presentation
 }
 
 // This function roughly showcases how we could implement the "extract a single claim value" with a
