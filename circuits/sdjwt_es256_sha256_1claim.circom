@@ -119,7 +119,11 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     );
 
     // output the hash in decimal bytes, useful for debugging the hash inputs.
-    signal output hash_bytes[32] <== Bits2ArrayBE(256,32)(hash_bin);
+    signal hash_bytes[32] <== Bits2ArrayBE(256,32)(hash_bin);
+    log("Hash:");
+    for (var i = 0; i < 32; i++) {
+        log(hash_bytes[i]);
+    }
 
     // // Sha outputs in binary, ECDSA expects 6*u43, so we have to convert.
     // signal hash[6] <== Bits2Array(256, 6)(hash_bin);
