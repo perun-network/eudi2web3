@@ -27,16 +27,6 @@ fn main() {
     // Run circom
     // compile_circom("dlpexample", circom_output);
 
-    // Transpile circom wasm output to C and link it.
-    // This env variable fixes a compilation error by disabling the w2c2 provided bool and using
-    // the one from std. No idea why that's necessary.
-    // unsafe {
-    //     std::env::set_var(
-    //         "CFLAGS", // "-include stdbool.h -D__bool_true_false_are_defined=1",
-    //         "-std=c99",
-    //     )
-    // };
-
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let zkey_dir = std::path::Path::new(&manifest_dir).join("zkey_tmp");
 
@@ -225,10 +215,12 @@ void witness_c_cleanup(instance * i) {
                     // Get the message (for simplicity truncate long messages)
                     char message[1024];
                     int i = 0;
+                    char c;
                     do {{
-                        message[i] = {circuit_name_compressed}_getMessageChar(instance);
+                        c = {circuit_name_compressed}_getMessageChar(instance);
+                        message[i] = c;
                         i++;
-                    }} while (message[i] != 0 && i < 1024);
+                    }} while (c != 0 && i < 1024);
                     
                     // Make truncate if necessary.
                     message[1023] = 0;
@@ -260,10 +252,12 @@ void witness_c_cleanup(instance * i) {
                     // Get the message (for simplicity truncate long messages)
                     char message[1024];
                     int i = 0;
+                    char c;
                     do {{
-                        message[i] = {circuit_name_compressed}_getMessageChar(instance);
+                        c = {circuit_name_compressed}_getMessageChar(instance);
+                        message[i] = c;
                         i++;
-                    }} while (message[i] != 0 && i < 1024);
+                    }} while (c != 0 && i < 1024);
                     
                     // Make truncate if necessary.
                     message[1023] = 0;
