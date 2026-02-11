@@ -1,4 +1,5 @@
 use std::ffi::{CStr, c_char, c_void};
+use std::time::Instant;
 use std::{fs::File, io::Write};
 
 use ark_bn254::{Bn254, G1Affine};
@@ -8,6 +9,7 @@ use ark_ff::PrimeField;
 use ark_groth16::{Groth16, VerifyingKey};
 use ark_relations::r1cs::SynthesisError;
 use ark_serialize::CanonicalDeserialize;
+use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
 use circom_prover::prover::{ark_circom, arkworks::verify_circom_proof};
 use num_bigint::BigInt;
 use prover::MultiuseProver;
@@ -151,19 +153,21 @@ fn main() {
         .rsplit_once('.')
         .expect("header.body.sig");
 
+    let sig = BASE64_URL_SAFE_NO_PAD.decode(sig).unwrap();
+    assert_eq!(sig.len(), 64);
+
     // Configuration of the circuit
     const MAX_PAYLOAD_BYTES: usize = 1024;
 
     // Build the input
     // IMPORTANT: rust_witness fails silently if any input signal is missing, setting all
     // intermediate and output signals to 0.
-    let pk_x = bytes_to_limbs(&key[1..1 + 32]);
-    let pk_y = bytes_to_limbs(&key[1 + 32..]);
-    let sig_r = [1, 2, 3, 4, 5, 6].into_iter().map(|v| v.into()).collect();
-    let sig_s = [7, 8, 9, 1, 2, 3].into_iter().map(|v| v.into()).collect();
+    let pk_x = bebytes2limbs(&key[1..1 + 32]);
+    let pk_y = bebytes2limbs(&key[1 + 32..]);
+    let sig_r = bebytes2limbs(&sig[..32]);
+    let sig_s = bebytes2limbs(&sig[32..]);
     let (payload, payload_padded_len) = str2binary_sha2padding(message, MAX_PAYLOAD_BYTES);
     let payload_len = vec![payload_padded_len.into()];
-    dbg!(&payload_len);
     let input = [(
         "in".into(),
         [pk_x, pk_y, sig_r, sig_s, payload, payload_len]
@@ -171,7 +175,15 @@ fn main() {
             .flatten()
             .collect(),
     )];
+    let t0 = Instant::now();
     let wit = witness::sdjwtes256sha2561claim_witness(input);
+    let t0 = t0.elapsed();
+    println!(
+        "INFO: Witness generation finished {}.{:03}",
+        t0.as_secs(),
+        t0.subsec_millis()
+    );
+    dbg!(wit.len());
     let mut f = std::fs::File::create("./witness.txt").unwrap();
     for (i, v) in wit.iter().enumerate() {
         writeln!(f, "{i:08}: {v}").unwrap();
@@ -212,13 +224,9 @@ fn main() {
     f.flush().unwrap();
     drop(f);
 
-    dbg!(wit.len());
     dbg!(&wit[..10.min(wit.len())]);
     // dbg!(&witness[..(1 + 256)]);
     // dbg!(&witness[(1+256+)..()]);
-
-    let expected: [u8; 32] = sha2::Sha256::digest(message).into();
-    dbg!(expected);
 
     // let (proof, valid) = prover.prove(witness).unwrap();
     // dbg!(&proof);
@@ -234,7 +242,8 @@ fn main() {
     // dbg!(x);
 }
 
-fn bytes_to_limbs(coord: &[u8]) -> Vec<BigInt> {
+fn bebytes2limbs(coord: &[u8]) -> Vec<BigInt> {
+    assert_eq!(coord.len(), 32);
     let mut limbs = Vec::new();
     let mut n = BigInt::from_bytes_be(num_bigint::Sign::Plus, coord); // or from_bytes_le depending on circom convention
     let mask = (BigInt::from(1u64) << 43) - 1u64;
@@ -269,13 +278,6 @@ fn str2binary_sha2padding(s: &str, max_padded_len: usize) -> (Vec<BigInt>, usize
     // input_bits + 1 + padding_bits + 64 == n*512
     let padding_bits = (512 - (input_bits + 1 + 64) % 512) % 512;
     // let padding_bits = 0usize.wrapping_sub(input_bits + 1 + 64) % 512;
-
-    dbg!(
-        s.len(),
-        input_bits,
-        padding_bits,
-        input_bits + 1 + padding_bits + 64
-    );
 
     // Sha2 padding:
     // Always one '1' bit, followed by '0' bits as padding, finished with a 64-bit big endian
