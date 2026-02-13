@@ -3,6 +3,7 @@ pragma circom 2.2.3;
 include "circom-ecdsa-p256/circuits/ecdsa.circom";
 include "zk-email-verify/packages/circuits/lib/sha.circom";
 include "circomlib/circuits/bitify.circom";
+include "bits2partialB64.circom";
 
 // 6*u43 is the format prefered/used by the library (even though it seems to allow other k).
 bus Signature {
@@ -47,53 +48,14 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
     // @type: u64
     // signal body_start;                        // Offset into payload where the '.' separator is.
     // Location steps[path_depth];
+
+    // Index into payload where the interesting data starts. Must point to the start of a block in the body,
+    // even though the offset is from the start of header (all base64 encoded, including the separating dot).
+    // TODO: We may want to change this at some point.
+    // @type: u64
+    signal payloadOff;
 }
 
-template BEBits2Array(n, k) {
-    // We could allow other sizes, but then it's not obvious what needs to be padded.
-    assert(n%k == 0);
-
-    signal input bits[n]; // binary
-    signal output out[k];
-
-    // Calculate the required size for Bits2Num (last one can be shorter).
-    var size = (n+k-1)\k; // div_ceil
-
-    // Create the components
-    component b2n[k];
-    for (var i = 0; i < k; i++) {
-        b2n[i] = Bits2Num(size);
-        for (var x = 0; x < size; x++) {
-            b2n[i].in[size-1-x] <== bits[i*size+x];
-        }
-    }
-
-    // Wire up the output
-    for (var i = 0; i < k; i++) {
-        out[i] <== b2n[i].out;
-    }
-}
-
-template BEBits2Limbs {
-    signal input bits[256]; // binary
-    signal output out[6];
-
-    component b2n[6];
-
-    for (var i = 0; i < 6; i++) {
-        b2n[i] = Bits2Num(43);
-        for (var j = 0; j < 43; j++) {
-            var bitPos = i * 43 + j;
-            if (bitPos < 256) {
-                // sha.out is most significant bit first. Reverse to obtain least significant bit first numeric interpretation
-                b2n[i].in[j] <== bits[255 - bitPos];
-            } else {
-                b2n[i].in[j] <== 0;
-            }
-        }
-        out[i] <== b2n[i].out;
-    }
-}
 
 template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     input SDJWT(payload_bytes, num_sd, sdbytes, path_depth) in;
@@ -101,6 +63,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // Canary to detect when rust_witness doesn't have all inputs. Can be removed.
     signal output test <== 99;
 
+    /*
     // Compute hash of JWT header+body
     // TODO: I don't think this verifies if the padding is correct, which could be an attack vector.
     signal hash_bin[256] <== Sha256General(payload_bytes*8)(
@@ -125,6 +88,87 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     );
     assert(valid);
     valid === 1;
+    */
+
+    // We are looking for a json key-value pair: `"key":.*[,}\]]` inside the base64.
+    // The base64 decoder we currently have is not sha2 padding aware, so we should
+    // stay in-bounds or we need special handling for padding.
+    // We can get various positions as input.
+    // Base64: 012345 012345 012345 012345
+    // Bytes:  01234501 23450123 45012345
+    // base64pos = bytespos * 4/3
+    // 0*4/3 = 0
+    // 1*4/3 = 4/3 = 1
+    // 2*4/3 = 8/3 = 2
+    // 3*4/3 = 12/3 = 4
+    var max_kv_b64_len = 64;
+    // PERFORMANCE: This feels very inefficient. I'm trying out two different variants to see which ones has fewer constraints:
+    // 1) A single Multiplexer with a multi-signal output
+    //    - 64/1024 bytes relevant for base64 => 70386 constraints, 78067 wires, 274047 labels
+    // 2) One multiplexer byte, which is what the eudi-web3-bridge project used.
+    // TODO: For now both implementations assume they are in-bounds.
+    
+    // Implementatino for 1)
+    // Convert bits to u8.
+    // PERFORMANCE: It likely makes a difference whether we do this for all inputs and then multiplex on fewer signals
+    //              or if we multiplex on 8x the amount of inputs and then convert to bytes.
+    //              The first one sounds faster, but I have not benchmarked it.
+    // signal b64[payload_bytes];
+    // component b64_b2n[payload_bytes];
+    // for (var i = 0; i < payload_bytes; i++) {
+    //     b64_b2n[i] = Bits2Num(8);
+    //     for (var b = 0; b < 8; b++) {
+    //         // Bits2Num expects little-endian
+    //         b64_b2n[i].in[7-b] <== in.payload[8*i+b];
+    //     }
+    //     b64_b2n[i].out ==> b64[i];
+    // }
+    // log("B64 input:");
+    // for (var i = 0; i < max_kv_b64_len; i++) {
+    //     log(b64[in.payloadOff + i]);
+    // }
+    // // TODO: in.payload is in binary, so we'll have to build base64 signals first ...
+    // // NOTE: This implementation has problems if the selection end is after payload_bytes ends.
+    // component mul = Multiplexer(max_kv_b64_len, payload_bytes-max_kv_b64_len);
+    // for (var i = 0; i < payload_bytes-max_kv_b64_len; i++) {
+    //     for (var o = 0; o < max_kv_b64_len; o++) {
+    //         mul.inp[i][o] <== b64[i+o];
+    //     }
+    // }
+    // mul.sel <== in.payloadOff;
+    // log("Mux output:");
+    // for (var i = 0; i < max_kv_b64_len; i++) {
+    //     log(mul.out[i]);
+    // }
+    // assert(max_kv_b64_len % 4 == 0);
+    // component dec = Base64Decode(max_kv_b64_len/4*3);
+    // dec.in <== mul.out;
+
+    // Do not use V3, out base64 can start at an offset!
+    signal bytes[max_kv_b64_len/4*3] <== bits2partialB64DecodeV6(payload_bytes, max_kv_b64_len)(
+        bits <== in.payload,
+        offset <== in.payloadOff
+    );
+
+    log("Decoded base64:");
+    for (var i = 0; i < max_kv_b64_len/4*3; i++) {
+        log(bytes[i]);
+    }
+    log("END");
+
+    // TODO: Add the following checks:
+    // - [ ] Confirm we have a valid offset (based on the '.' separator)
+    // - [ ] Account for 0-2 bytes offset in the data we get (due to the block restriction in Base64Decode)
+    // - [ ] Make sure the character before the quote does not escape the quote and that we are at a starting quote
+    //       NOTE: Only whitespace, comma and brackets are allowed.
+    // - [ ] Make sure the quote actually is a quote
+    // - [ ] Compare the key or copy it to output
+    // - [ ] Make sure we have the ending quote (i.e. noone has truncated or extended the key)
+    // - [ ] Make sure there are only allowed characters between key ending quote and value start: whitespaces and `:`
+    // - [ ] Copy the value to output (later we will want to be able to process it as a _sd array,
+    //       but for that we might want a separate base64 decode)
+
+
 
     // How the hell do you translate that into a circuit template?
     // 1. Verify in.payload against in.sig (ECDSA_P256_SHA256_FIXED)
@@ -142,5 +186,18 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     //  3.3:       Check base64(hash) == data[in.steps[i].hash_offset..]
     //  3.4:       continue 
 }
+
+/*
+# NOTES on base64 optimization
+- We don't need to decode the header.
+- We don't need to prove that the input is valid base64
+- All of our base64 input does not contain base64 padding and is padded using SHA256 padding.
+  - Input MUST be followed by 0x80 (not part of the input) because due to byte alignment this cannot contain the big-endian u64 length.
+  - After this byte we always get 0x00 bytes because the length is always < payload_bytes and the padding would be this way, too.
+  - This is not proven by the ZK circuit but if this is not the case, the issuer would've had to sign in a non-spec compliant way.
+- It should be possible to abuse this fact in a base64 lookup, as neither 0x80 nor 0x00 is valid base64, thus avoiding bounds checks.
+  At least within a base64 block. The length will always fit into u32, otherwise the circuit would be gigantic.
+- There should be even more opportunities, given that we need the base64 encoded a binary for computing sha256.
+*/
 
 component main = SDJWT_ES256_SHA256_1claim(1024, 3, 200, 2);
