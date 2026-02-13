@@ -24,6 +24,7 @@ mod witness {
     rust_witness::witness!(sdjwtes256sha2561claim);
 }
 
+mod keyfinder;
 mod mdoc;
 mod prover;
 mod sdjwt;
@@ -153,8 +154,24 @@ fn main() {
         .rsplit_once('.')
         .expect("header.body.sig");
 
+    let (header, body) = message.split_once('.').unwrap();
     let sig = BASE64_URL_SAFE_NO_PAD.decode(sig).unwrap();
     assert_eq!(sig.len(), 64);
+
+    // TODO: Find the message offset for the key we are interested in.
+    let body_json = BASE64_URL_SAFE_NO_PAD.decode(body).unwrap();
+    let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name").expect("invalid json");
+    if pos.is_none() {
+        pos = keyfinder::find_key_jsonbytes(&body_json, "_sd").expect("invalid json");
+    }
+    let Some(pos) = pos else {
+        // TODO: Handle this gracefully, the JWT does not have this claim.
+        panic!("Could not find the key 'given_name' or '_sd'");
+    };
+    // We need the character before the quote to make sure it isn't an escaped quote and thus part
+    // of a string.
+    let payload_off = header.len() + 1 + (pos.key_start_quote - 1) / 3 * 4;
+    dbg!(&pos, payload_off);
 
     // Configuration of the circuit
     const MAX_PAYLOAD_BYTES: usize = 1024;
@@ -167,10 +184,10 @@ fn main() {
     let sig_r = bebytes2limbs(&sig[..32]);
     let sig_s = bebytes2limbs(&sig[32..]);
     let (payload, payload_padded_len) = str2binary_sha2padding(message, MAX_PAYLOAD_BYTES);
-    let payload_len = vec![payload_padded_len.into()];
+    let lengths = vec![payload_padded_len.into(), payload_off.into()];
     let input = [(
         "in".into(),
-        [pk_x, pk_y, sig_r, sig_s, payload, payload_len]
+        [pk_x, pk_y, sig_r, sig_s, payload, lengths]
             .into_iter()
             .flatten()
             .collect(),
@@ -179,7 +196,7 @@ fn main() {
     let wit = witness::sdjwtes256sha2561claim_witness(input);
     let t0 = t0.elapsed();
     println!(
-        "INFO: Witness generation finished {}.{:03}",
+        "INFO: Witness generation finished {}.{:03} seconds",
         t0.as_secs(),
         t0.subsec_millis()
     );

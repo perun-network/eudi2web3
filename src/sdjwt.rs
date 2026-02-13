@@ -60,8 +60,8 @@ pub fn explore() -> String {
     let sd_jwt = issuer
         .issue_sd_jwt(
             claims,
-            ClaimsForSelectiveDisclosureStrategy::AllLevels,
-            // ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.address.country"]),
+            // ClaimsForSelectiveDisclosureStrategy::AllLevels,
+            ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.address"]),
             None,
             true,
             // Only seems to affect the outer encoding
