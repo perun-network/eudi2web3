@@ -184,7 +184,11 @@ fn main() {
     let sig_r = bebytes2limbs(&sig[..32]);
     let sig_s = bebytes2limbs(&sig[32..]);
     let (payload, payload_padded_len) = str2binary_sha2padding(message, MAX_PAYLOAD_BYTES);
-    let lengths = vec![payload_padded_len.into(), payload_off.into()];
+    let lengths = vec![
+        payload_padded_len.into(),
+        header.len().into(),
+        payload_off.into(),
+    ];
     let input = [(
         "in".into(),
         [pk_x, pk_y, sig_r, sig_s, payload, lengths]

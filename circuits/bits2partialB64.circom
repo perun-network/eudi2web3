@@ -281,19 +281,6 @@ template SliceFixedLen(w, n) {
     out <== mul.out;
 }
 
-// Same as Num2Bits but ignores the bits above n.
-template Num2BitsTruncate(n) {
-    signal input in;
-    signal output out[n];
-
-    var e2=1;
-    for (var i = 0; i<n; i++) {
-        out[i] <-- (in >> i) & 1;
-        out[i] * (out[i] -1 ) === 0;
-        e2 = e2+e2;
-    }
-}
-
 // Takes an array of 32 bit unsigned ints as input and returns their big-endian bytes.
 template uArr_to_be_bytes(n, k) {
     signal input in[n];

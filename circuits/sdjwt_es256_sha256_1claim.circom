@@ -49,6 +49,9 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
     // signal body_start;                        // Offset into payload where the '.' separator is.
     // Location steps[path_depth];
 
+    // Position of the dot separator between JWT header and body.
+    signal dotSep;
+
     // Index into payload where the interesting data starts. Must point to the start of a block in the body,
     // even though the offset is from the start of header (all base64 encoded, including the separating dot).
     // TODO: We may want to change this at some point.
@@ -58,6 +61,9 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
 
 
 template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
+    // Including the '.' separator, before base64 decoding
+    var MAX_HEADER_SIZE = 256;
+
     input SDJWT(payload_bytes, num_sd, sdbytes, path_depth) in;
 
     // Canary to detect when rust_witness doesn't have all inputs. Can be removed.
@@ -144,7 +150,41 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // component dec = Base64Decode(max_kv_b64_len/4*3);
     // dec.in <== mul.out;
 
-    // Do not use V3, out base64 can start at an offset!
+    // PERFORMANCE: We should only do this conversion once, but that is difficult if we don't know
+    // which version of bits2partialB64 we will use. Ideally we'd use the same here, reuse the representation
+    // and just have a second Multiplexer that has it as input. Then we just need to split it back up into
+    // bytes and multiplex on that, same as we do for bits2partialB64. For now I'm taking the simpler
+    // approach of doing the signal conversion twice (directly to bytes in this case), even if it is likely
+    // less efficient.
+    signal payload_bytes[payload_bytes] <== BEBits2Array(payload_bytes*8, payload_bytes)(in.payload);
+
+    // Make sure the dotSep position is correct (without this a malicious user could try to get us
+    // to decode base64 with a wrong offset and make us believe we're at the key while we are
+    // somewhere in arbitrary data).
+    assert(in.dotSep < MAX_HEADER_SIZE);
+    component dotCheck = Multiplexer(1,MAX_HEADER_SIZE);
+    for (var i = 0; i < MAX_HEADER_SIZE; i++) {
+        dotCheck.inp[i][0] <== payload_bytes[i];
+    }
+    dotCheck.sel <== in.dotSep;
+    dotCheck.out[0] === 46; // '.' character
+
+    // Make sure we are decoding from the payload body
+    component bodyCheck = LessThan(32);
+    bodyCheck.in[0] <== in.dotSep;
+    bodyCheck.in[1] <== in.payloadOff;
+    bodyCheck.out === 1;
+    assert(bodyCheck.out == 1);
+
+    // Make sure our base64 decoding is properly aligned.
+    // (in.payloadOff-in.dotSep) % 4 == 1
+    signal rem[2] <== Num2BitsTruncate(2)(in.payloadOff - in.dotSep);
+    rem[0] === 1;
+    rem[1] === 0;
+    assert(rem[0] == 1);
+    assert(rem[1] == 0);
+
+    // Do not use V3, our base64 can start at an offset!
     signal bytes[max_kv_b64_len/4*3] <== bits2partialB64DecodeV6(payload_bytes, max_kv_b64_len)(
         bits <== in.payload,
         offset <== in.payloadOff

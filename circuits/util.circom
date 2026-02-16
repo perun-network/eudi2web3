@@ -48,3 +48,15 @@ template BEBits2Limbs {
     }
 }
 
+// Same as Num2Bits but ignores the bits above n.
+template Num2BitsTruncate(n) {
+    signal input in;
+    signal output out[n];
+
+    var e2=1;
+    for (var i = 0; i<n; i++) {
+        out[i] <-- (in >> i) & 1;
+        out[i] * (out[i] -1 ) === 0;
+        e2 = e2+e2;
+    }
+}
