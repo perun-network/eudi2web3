@@ -60,3 +60,43 @@ template Num2BitsTruncate(n) {
         e2 = e2+e2;
     }
 }
+
+// Takes a slice of signals from the input: out = in[offset..offset+w].
+// It is just a convenience wrapper around Multiplexer (which is more flexible).
+//
+// PERFORMANCE: After implementing this I noticed that zk-email-verify has a similar function
+//              (which additionally has a length signal and sets the bits after it to 0,
+//              instead of forcing the entire slice to fit like we do).
+//              Probably worth testing which one is more efficient.
+//              This implementation also has some downsides/limits when the data is close to the end.
+template SliceFixedLen(w, n) {
+    assert(w < n);
+    signal input in[n];
+    signal input sel;
+    signal output out[w];
+
+    component mul = Multiplexer(w, n-w);
+    for (var i = 0; i < n-w; i++) {
+        for (var o = 0; o < w; o++) {
+            mul.inp[i][o] <== in[i+o];
+        }
+    }
+    mul.sel <== sel;
+    out <== mul.out;
+}
+
+template SliceFixedLenV2(w, n) {
+    assert(w < n);
+    signal input in[n];
+    signal input sel;
+    signal output out[w];
+
+    component mul = Multiplexer(w, n);
+    for (var i = 0; i < n; i++) {
+        for (var o = 0; o < w; o++) {
+            mul.inp[i][o] <== i+o<n ? in[i+o] : 0;
+        }
+    }
+    mul.sel <== sel;
+    out <== mul.out;
+}

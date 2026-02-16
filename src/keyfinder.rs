@@ -5,13 +5,16 @@ use serde_json::de::SliceRead;
 use serde_json::value::RawValue;
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Position {
+pub struct Position<'a> {
     // Includes the quotes (because we need them for verification)
     pub key_start_quote: usize,
     pub key_end_quote: usize,
     // Also includes quote or brackets, unless its a number or bool.
     pub value_start: usize,
     pub value_end: usize,
+
+    pub key: &'a str,
+    pub value: &'a str,
 }
 struct RawPosition<'data> {
     key: &'data str,
@@ -19,7 +22,10 @@ struct RawPosition<'data> {
 }
 
 /// Only searches in the upper-most layer, doesn't go into sub-objects.
-pub fn find_key_jsonbytes(data: &[u8], key: &str) -> serde_json::Result<Option<Position>> {
+pub fn find_key_jsonbytes<'a, 'k>(
+    data: &'a [u8],
+    key: &'k str,
+) -> serde_json::Result<Option<Position<'a>>> {
     let mut deserializer = serde_json::Deserializer::new(SliceRead::new(data));
     let raw = deserializer.deserialize_map(KeyFinderVisitor { key })?;
     deserializer.end()?;
@@ -29,6 +35,7 @@ pub fn find_key_jsonbytes(data: &[u8], key: &str) -> serde_json::Result<Option<P
 
     let Some(raw) = raw else { return Ok(None) };
 
+    let key = raw.key;
     let value = raw.value.get();
 
     // Convert the references to an offset. This works because we know serde_json must have given us
@@ -57,6 +64,8 @@ pub fn find_key_jsonbytes(data: &[u8], key: &str) -> serde_json::Result<Option<P
         key_end_quote,
         value_start,
         value_end,
+        key,
+        value,
     };
 
     Ok(Some(pos))

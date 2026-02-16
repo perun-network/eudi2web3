@@ -257,29 +257,6 @@ template bits2partialB64Decode_multibyteMux_offset(payload_bytes, max_b64_len, k
     out <== dec.out;
 }
 
-// Takes a slice of signals from the input: out = in[offset..offset+w].
-// It is just a convenience wrapper around Multiplexer (which is more flexible).
-//
-// PERFORMANCE: After implementing this I noticed that zk-email-verify has a similar function
-//              (which additionally has a length signal and sets the bits after it to 0,
-//              instead of forcing the entire slice to fit like we do).
-//              Probably worth testing which one is more efficient.
-//              This implementation also has some downsides/limits when the data is close to the end.
-template SliceFixedLen(w, n) {
-    assert(w < n);
-    signal input in[n];
-    signal input sel;
-    signal output out[w];
-
-    component mul = Multiplexer(w, n-w);
-    for (var i = 0; i < n-w; i++) {
-        for (var o = 0; o < w; o++) {
-            mul.inp[i][o] <== in[i+o];
-        }
-    }
-    mul.sel <== sel;
-    out <== mul.out;
-}
 
 // Takes an array of 32 bit unsigned ints as input and returns their big-endian bytes.
 template uArr_to_be_bytes(n, k) {

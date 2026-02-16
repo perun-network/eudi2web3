@@ -175,6 +175,7 @@ fn main() {
 
     // Configuration of the circuit
     const MAX_PAYLOAD_BYTES: usize = 1024;
+    const MAX_VALUE_BYTES: usize = 32;
 
     // Build the input
     // IMPORTANT: rust_witness fails silently if any input signal is missing, setting all
@@ -189,13 +190,16 @@ fn main() {
         header.len().into(),
         payload_off.into(),
     ];
-    let input = [(
-        "in".into(),
-        [pk_x, pk_y, sig_r, sig_s, payload, lengths]
-            .into_iter()
-            .flatten()
-            .collect(),
-    )];
+    let input = [
+        (
+            "in".into(),
+            [pk_x, pk_y, sig_r, sig_s, payload, lengths]
+                .into_iter()
+                .flatten()
+                .collect(),
+        ),
+        ("value".into(), zeropad_str(pos.value, MAX_VALUE_BYTES)),
+    ];
     let t0 = Instant::now();
     let wit = witness::sdjwtes256sha2561claim_witness(input);
     let t0 = t0.elapsed();
@@ -320,4 +324,13 @@ fn str2binary_sha2padding(s: &str, max_padded_len: usize) -> (Vec<BigInt>, usize
     out.resize(max_padded_len * 8, 0.into());
 
     (out, sha2padded_bits)
+}
+
+fn zeropad_str(s: &str, len: usize) -> Vec<BigInt> {
+    assert!(s.len() <= len);
+    let mut out = vec![0.into(); len];
+    for (i, b) in s.as_bytes().iter().enumerate() {
+        out[i] = (*b).into()
+    }
+    out
 }

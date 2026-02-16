@@ -4,6 +4,7 @@ include "circom-ecdsa-p256/circuits/ecdsa.circom";
 include "zk-email-verify/packages/circuits/lib/sha.circom";
 include "circomlib/circuits/bitify.circom";
 include "bits2partialB64.circom";
+include "json.circom";
 
 // 6*u43 is the format prefered/used by the library (even though it seems to allow other k).
 bus Signature {
@@ -63,11 +64,22 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
 template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // Including the '.' separator, before base64 decoding
     var MAX_HEADER_SIZE = 256;
+    var max_kv_b64_len = 64;
+    var MAX_BYTES = 48;
+    var MAX_KEY = 10;
+    var MAX_VALUE = 32;
 
     input SDJWT(payload_bytes, num_sd, sdbytes, path_depth) in;
+    signal input value[MAX_VALUE]; // 0-padded
 
     // Canary to detect when rust_witness doesn't have all inputs. Can be removed.
     signal output test <== 99;
+
+    var key[MAX_KEY] = [103, 105, 118, 101, 110, 95, 110, 97, 109, 101]; // "given_name"
+    var key_length = 10;
+
+    assert(MAX_BYTES % 3 == 0);
+    var MAX_BASE64 = MAX_BYTES / 3 * 4;
 
     /*
     // Compute hash of JWT header+body
@@ -99,56 +111,6 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // We are looking for a json key-value pair: `"key":.*[,}\]]` inside the base64.
     // The base64 decoder we currently have is not sha2 padding aware, so we should
     // stay in-bounds or we need special handling for padding.
-    // We can get various positions as input.
-    // Base64: 012345 012345 012345 012345
-    // Bytes:  01234501 23450123 45012345
-    // base64pos = bytespos * 4/3
-    // 0*4/3 = 0
-    // 1*4/3 = 4/3 = 1
-    // 2*4/3 = 8/3 = 2
-    // 3*4/3 = 12/3 = 4
-    var max_kv_b64_len = 64;
-    // PERFORMANCE: This feels very inefficient. I'm trying out two different variants to see which ones has fewer constraints:
-    // 1) A single Multiplexer with a multi-signal output
-    //    - 64/1024 bytes relevant for base64 => 70386 constraints, 78067 wires, 274047 labels
-    // 2) One multiplexer byte, which is what the eudi-web3-bridge project used.
-    // TODO: For now both implementations assume they are in-bounds.
-    
-    // Implementatino for 1)
-    // Convert bits to u8.
-    // PERFORMANCE: It likely makes a difference whether we do this for all inputs and then multiplex on fewer signals
-    //              or if we multiplex on 8x the amount of inputs and then convert to bytes.
-    //              The first one sounds faster, but I have not benchmarked it.
-    // signal b64[payload_bytes];
-    // component b64_b2n[payload_bytes];
-    // for (var i = 0; i < payload_bytes; i++) {
-    //     b64_b2n[i] = Bits2Num(8);
-    //     for (var b = 0; b < 8; b++) {
-    //         // Bits2Num expects little-endian
-    //         b64_b2n[i].in[7-b] <== in.payload[8*i+b];
-    //     }
-    //     b64_b2n[i].out ==> b64[i];
-    // }
-    // log("B64 input:");
-    // for (var i = 0; i < max_kv_b64_len; i++) {
-    //     log(b64[in.payloadOff + i]);
-    // }
-    // // TODO: in.payload is in binary, so we'll have to build base64 signals first ...
-    // // NOTE: This implementation has problems if the selection end is after payload_bytes ends.
-    // component mul = Multiplexer(max_kv_b64_len, payload_bytes-max_kv_b64_len);
-    // for (var i = 0; i < payload_bytes-max_kv_b64_len; i++) {
-    //     for (var o = 0; o < max_kv_b64_len; o++) {
-    //         mul.inp[i][o] <== b64[i+o];
-    //     }
-    // }
-    // mul.sel <== in.payloadOff;
-    // log("Mux output:");
-    // for (var i = 0; i < max_kv_b64_len; i++) {
-    //     log(mul.out[i]);
-    // }
-    // assert(max_kv_b64_len % 4 == 0);
-    // component dec = Base64Decode(max_kv_b64_len/4*3);
-    // dec.in <== mul.out;
 
     // PERFORMANCE: We should only do this conversion once, but that is difficult if we don't know
     // which version of bits2partialB64 we will use. Ideally we'd use the same here, reuse the representation
@@ -156,7 +118,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // bytes and multiplex on that, same as we do for bits2partialB64. For now I'm taking the simpler
     // approach of doing the signal conversion twice (directly to bytes in this case), even if it is likely
     // less efficient.
-    signal payload_bytes[payload_bytes] <== BEBits2Array(payload_bytes*8, payload_bytes)(in.payload);
+    signal payload_b[payload_bytes] <== BEBits2Array(payload_bytes*8, payload_bytes)(in.payload);
 
     // Make sure the dotSep position is correct (without this a malicious user could try to get us
     // to decode base64 with a wrong offset and make us believe we're at the key while we are
@@ -164,7 +126,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     assert(in.dotSep < MAX_HEADER_SIZE);
     component dotCheck = Multiplexer(1,MAX_HEADER_SIZE);
     for (var i = 0; i < MAX_HEADER_SIZE; i++) {
-        dotCheck.inp[i][0] <== payload_bytes[i];
+        dotCheck.inp[i][0] <== payload_b[i];
     }
     dotCheck.sel <== in.dotSep;
     dotCheck.out[0] === 46; // '.' character
@@ -185,27 +147,37 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     assert(rem[1] == 0);
 
     // Do not use V3, our base64 can start at an offset!
-    signal bytes[max_kv_b64_len/4*3] <== bits2partialB64DecodeV6(payload_bytes, max_kv_b64_len)(
+    signal bytes[MAX_BYTES] <== bits2partialB64DecodeV6(payload_bytes, MAX_BASE64)(
         bits <== in.payload,
         offset <== in.payloadOff
     );
 
     log("Decoded base64:");
-    for (var i = 0; i < max_kv_b64_len/4*3; i++) {
+    for (var i = 0; i < MAX_BYTES; i++) {
         log(bytes[i]);
     }
     log("END");
 
+    // TODO: Handle the offset that was required for base64.
+
+    JsonCheckKeyValue(MAX_BYTES, MAX_KEY, MAX_VALUE)(
+        data <== bytes,
+        key <== key,
+        key_length <== key_length,
+        value <== value
+    );
+
     // TODO: Add the following checks:
-    // - [ ] Confirm we have a valid offset (based on the '.' separator)
+    // - [x] Confirm we have a valid offset (based on the '.' separator)
     // - [ ] Account for 0-2 bytes offset in the data we get (due to the block restriction in Base64Decode)
-    // - [ ] Make sure the character before the quote does not escape the quote and that we are at a starting quote
+    // - [x] Make sure the character before the quote does not escape the quote and that we are at a starting quote
     //       NOTE: Only whitespace, comma and brackets are allowed.
-    // - [ ] Make sure the quote actually is a quote
-    // - [ ] Compare the key or copy it to output
+    // - [x] Make sure the quote actually is a quote
+    // - [x] Compare the key or copy it to output
     // - [ ] Make sure we have the ending quote (i.e. noone has truncated or extended the key)
-    // - [ ] Make sure there are only allowed characters between key ending quote and value start: whitespaces and `:`
-    // - [ ] Copy the value to output (later we will want to be able to process it as a _sd array,
+    //       NOTE: Decided against this and allow value truncation. Value includes quotation marks, so this can be detected.
+    // - [x] Make sure there are only allowed characters between key ending quote and value start: whitespaces and `:`
+    // - [x] Copy the value to output (later we will want to be able to process it as a _sd array,
     //       but for that we might want a separate base64 decode)
 
 
