@@ -171,7 +171,8 @@ fn main() {
     // We need the character before the quote to make sure it isn't an escaped quote and thus part
     // of a string.
     let payload_off = header.len() + 1 + (pos.key_start_quote - 1) / 3 * 4;
-    dbg!(&pos, payload_off);
+    let json_align = (pos.key_start_quote - 1) % 3;
+    dbg!(&pos, payload_off, json_align);
 
     // Configuration of the circuit
     const MAX_PAYLOAD_BYTES: usize = 1024;
@@ -189,6 +190,7 @@ fn main() {
         payload_padded_len.into(),
         header.len().into(),
         payload_off.into(),
+        json_align.into(),
     ];
     let input = [
         (
@@ -249,7 +251,7 @@ fn main() {
     f.flush().unwrap();
     drop(f);
 
-    dbg!(&wit[..10.min(wit.len())]);
+    dbg!(&wit[..32.min(wit.len())]);
     // dbg!(&witness[..(1 + 256)]);
     // dbg!(&witness[(1+256+)..()]);
 

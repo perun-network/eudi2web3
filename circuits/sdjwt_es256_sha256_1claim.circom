@@ -58,13 +58,14 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
     // TODO: We may want to change this at some point.
     // @type: u64
     signal payloadOff;
+    // Value between 0 and 2 to go from base64 block alignment to the json start (character before quote)
+    signal jsonAlign;
 }
 
 
 template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // Including the '.' separator, before base64 decoding
     var MAX_HEADER_SIZE = 256;
-    var max_kv_b64_len = 64;
     var MAX_BYTES = 48;
     var MAX_KEY = 10;
     var MAX_VALUE = 32;
@@ -146,6 +147,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     assert(rem[0] == 1);
     assert(rem[1] == 0);
 
+
     // Do not use V3, our base64 can start at an offset!
     signal bytes[MAX_BYTES] <== bits2partialB64DecodeV6(payload_bytes, MAX_BASE64)(
         bits <== in.payload,
@@ -153,15 +155,16 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     );
 
     log("Decoded base64:");
-    for (var i = 0; i < MAX_BYTES; i++) {
+    for (var i = 0; i < 10; i++) {
         log(bytes[i]);
     }
     log("END");
 
     // TODO: Handle the offset that was required for base64.
+    signal aligned[MAX_BYTES] <== SliceFixedLenV2(MAX_BYTES, MAX_BYTES)(bytes, in.jsonAlign);
 
     JsonCheckKeyValue(MAX_BYTES, MAX_KEY, MAX_VALUE)(
-        data <== bytes,
+        data <== aligned,
         key <== key,
         key_length <== key_length,
         value <== value
@@ -212,4 +215,4 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
 - There should be even more opportunities, given that we need the base64 encoded a binary for computing sha256.
 */
 
-component main = SDJWT_ES256_SHA256_1claim(1024, 3, 200, 2);
+component main {public [value]} = SDJWT_ES256_SHA256_1claim(1024, 3, 200, 2);

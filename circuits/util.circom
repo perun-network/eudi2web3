@@ -86,7 +86,7 @@ template SliceFixedLen(w, n) {
 }
 
 template SliceFixedLenV2(w, n) {
-    assert(w < n);
+    assert(w <= n);
     signal input in[n];
     signal input sel;
     signal output out[w];
