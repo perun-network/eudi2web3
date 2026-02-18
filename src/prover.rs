@@ -70,18 +70,21 @@ impl<'z> MultiuseProver<'z> {
         Ok(Self { zkey, zkey_path })
     }
 
-    pub fn prove(&self, witness: Vec<BigInt>) -> Result<(ProofWithPubInput, bool)> {
-        let proof = self.prove_noverify(witness)?;
-
+    pub fn verify(&self, proof: &ProofWithPubInput) -> Result<bool> {
         // Verify the proof so we know it is actually useful/correct
-        let valid = circom_prover::CircomProver::verify(
+        circom_prover::CircomProver::verify(
             circom_prover::prover::ProofLib::Arkworks,
             circom_prover::prover::CircomProof {
                 proof: proof.proof.clone(),
                 pub_inputs: circom_prover::prover::PublicInputs(proof.pub_input[1..].to_vec()),
             },
             self.zkey_path.to_owned(),
-        )?;
+        )
+    }
+
+    pub fn prove(&self, witness: Vec<BigInt>) -> Result<(ProofWithPubInput, bool)> {
+        let proof = self.prove_noverify(witness)?;
+        let valid = self.verify(&proof)?;
 
         Ok((proof, valid))
     }

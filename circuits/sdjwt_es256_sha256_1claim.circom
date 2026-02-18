@@ -85,6 +85,9 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     /*
     // Compute hash of JWT header+body
     // TODO: I don't think this verifies if the padding is correct, which could be an attack vector.
+    // For payload_bytes=1024:   524.563 constraints (approx.)
+    // For payload_bytes=2048: 1.049.364 constraints (approx.)
+    // For payload_bytes=4096: 2.098.965 constraints (approx.)
     signal hash_bin[256] <== Sha256General(payload_bytes*8)(
         paddedIn <== in.payload,
         paddedInLength <== in.payloadLength
@@ -98,6 +101,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // }
 
     // Check signature
+    // Regardless of configuration: 2.220.351 constraints
     signal hash[6] <== BEBits2Limbs()(hash_bin);
     var valid = ECDSAVerifyNoPubkeyCheck(43, 6)(
         r <== in.sig.r, 
@@ -154,11 +158,11 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
         offset <== in.payloadOff
     );
 
-    log("Decoded base64:");
-    for (var i = 0; i < 10; i++) {
-        log(bytes[i]);
-    }
-    log("END");
+    // log("Decoded base64:");
+    // for (var i = 0; i < 10; i++) {
+    //     log(bytes[i]);
+    // }
+    // log("END");
 
     // TODO: Handle the offset that was required for base64.
     signal aligned[MAX_BYTES] <== SliceFixedLenV2(MAX_BYTES, MAX_BYTES)(bytes, in.jsonAlign);
@@ -172,7 +176,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
 
     // TODO: Add the following checks:
     // - [x] Confirm we have a valid offset (based on the '.' separator)
-    // - [ ] Account for 0-2 bytes offset in the data we get (due to the block restriction in Base64Decode)
+    // - [x] Account for 0-2 bytes offset in the data we get (due to the block restriction in Base64Decode)
     // - [x] Make sure the character before the quote does not escape the quote and that we are at a starting quote
     //       NOTE: Only whitespace, comma and brackets are allowed.
     // - [x] Make sure the quote actually is a quote

@@ -28,7 +28,7 @@ fn main() {
     // compile_circom("dlpexample", circom_output);
 
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let zkey_dir = std::path::Path::new(&manifest_dir).join("zkey_tmp");
+    let zkey_dir = std::path::Path::new(&manifest_dir).join("zkey");
 
     // println!("cargo::rustc-link-lib=stdbool");
 

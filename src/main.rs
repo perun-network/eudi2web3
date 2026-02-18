@@ -108,43 +108,22 @@ fn main() {
     println!("{}", "-".repeat(64));
     println!();
 
-    mdoc::explore();
-
-    println!();
-    println!("{}", "-".repeat(64));
-    println!();
-
-    /////////////////////////////////////////////////////////////////////////////////////
-    // Test circuit
-    /////////////////////////////////////////////////////////////////////////////////////
-
-    // let zkey_path = "zkey/dlpexample.zkey";
-    // let prover = MultiuseProver::new(zkey_path).unwrap();
-    let witness = witness::dlpexample_witness([
-        ("a".to_owned(), vec![3.into()]),
-        ("b".to_owned(), vec![7.into()]),
-    ]);
-    dbg!(&witness);
-    // let (proof, valid) = prover.prove(witness).unwrap();
-    // dbg!(&proof, valid);
-    // assert!(valid);
-
-    println!();
-    println!("{}", "-".repeat(64));
-    println!();
-
     /////////////////////////////////////////////////////////////////////////////////////
     // PoC circuit
     /////////////////////////////////////////////////////////////////////////////////////
 
-    // let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
-    // let prover = MultiuseProver::new(zkey_path).unwrap();
+    let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
+    let t0 = Instant::now();
+    let prover = MultiuseProver::new(zkey_path).unwrap();
+    print_execution_time("Prover loading finished", t0);
 
     // Test with hard coded issuer public key.
     let key = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
     let key = key.contents();
     let key = &key[key.len() - 65..];
     assert_eq!(key[0], 0x04);
+
+    let t0 = Instant::now();
 
     // Get the relevant data from the credential to pass to input
     let mut segments = credential.split('~');
@@ -172,7 +151,7 @@ fn main() {
     // of a string.
     let payload_off = header.len() + 1 + (pos.key_start_quote - 1) / 3 * 4;
     let json_align = (pos.key_start_quote - 1) % 3;
-    dbg!(&pos, payload_off, json_align);
+    // dbg!(&pos, payload_off, json_align);
 
     // Configuration of the circuit
     const MAX_PAYLOAD_BYTES: usize = 1024;
@@ -202,62 +181,70 @@ fn main() {
         ),
         ("value".into(), zeropad_str(pos.value, MAX_VALUE_BYTES)),
     ];
+    print_execution_time("Input preparation finished", t0);
+
+    println!("INFO: Generating witness ...");
     let t0 = Instant::now();
     let wit = witness::sdjwtes256sha2561claim_witness(input);
-    let t0 = t0.elapsed();
-    println!(
-        "INFO: Witness generation finished {}.{:03} seconds",
-        t0.as_secs(),
-        t0.subsec_millis()
-    );
-    dbg!(wit.len());
-    let mut f = std::fs::File::create("./witness.txt").unwrap();
-    for (i, v) in wit.iter().enumerate() {
-        writeln!(f, "{i:08}: {v}").unwrap();
-    }
-    f.flush().unwrap();
-    drop(f);
+    print_execution_time("Witness generation finished", t0);
 
-    let prime = BigInt::parse_bytes(
-        b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
-        10,
-    )
-    .unwrap();
-    let (sign, mut prime) = prime.to_bytes_be();
-    assert_ne!(sign, num_bigint::Sign::Minus);
-    prime.resize(32, 0);
-    let prime: [u8; 32] = prime.try_into().unwrap();
-    let wtns_file = WtnsFile {
-        version: 2,
-        header: wtns_file::Header {
-            field_size: 32,
-            prime: prime.into(),
-            witness_len: wit.len() as u32,
-        },
-        witness: wtns_file::Witness(
-            wit.iter()
-                .map(|v| {
-                    let (sign, mut v) = v.to_bytes_be();
-                    assert_ne!(sign, num_bigint::Sign::Minus);
-                    v.resize(32, 0);
-                    let v: [u8; 32] = v.try_into().unwrap();
-                    v.into()
-                })
-                .collect(),
-        ),
-    };
-    let mut f = std::fs::File::create("witness.wtns").unwrap();
-    wtns_file.write(&mut f).unwrap();
-    f.flush().unwrap();
-    drop(f);
+    // dbg!(wit.len());
+    // let mut f = std::fs::File::create("./witness.txt").unwrap();
+    // for (i, v) in wit.iter().enumerate() {
+    //     writeln!(f, "{i:08}: {v}").unwrap();
+    // }
+    // f.flush().unwrap();
+    // drop(f);
 
-    dbg!(&wit[..32.min(wit.len())]);
+    // let prime = BigInt::parse_bytes(
+    //     b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    //     10,
+    // )
+    // .unwrap();
+    // let (sign, mut prime) = prime.to_bytes_be();
+    // assert_ne!(sign, num_bigint::Sign::Minus);
+    // prime.resize(32, 0);
+    // let prime: [u8; 32] = prime.try_into().unwrap();
+    // let wtns_file = WtnsFile {
+    //     version: 2,
+    //     header: wtns_file::Header {
+    //         field_size: 32,
+    //         prime: prime.into(),
+    //         witness_len: wit.len() as u32,
+    //     },
+    //     witness: wtns_file::Witness(
+    //         wit.iter()
+    //             .map(|v| {
+    //                 let (sign, mut v) = v.to_bytes_be();
+    //                 assert_ne!(sign, num_bigint::Sign::Minus);
+    //                 v.resize(32, 0);
+    //                 let v: [u8; 32] = v.try_into().unwrap();
+    //                 v.into()
+    //             })
+    //             .collect(),
+    //     ),
+    // };
+    // let mut f = std::fs::File::create("witness.wtns").unwrap();
+    // wtns_file.write(&mut f).unwrap();
+    // f.flush().unwrap();
+    // drop(f);
+
+    // dbg!(&wit[..32.min(wit.len())]);
     // dbg!(&witness[..(1 + 256)]);
     // dbg!(&witness[(1+256+)..()]);
 
-    // let (proof, valid) = prover.prove(witness).unwrap();
-    // dbg!(&proof);
-    // assert!(valid);
+    println!("INFO: Generating proof ...");
+    let t0 = Instant::now();
+    let proof = prover.prove_noverify(wit).unwrap();
+    print_execution_time("Proof generation finished", t0);
+    dbg!(&proof);
+
+    println!("INFO: Veriying proof (locally) ...");
+    let t0 = Instant::now();
+    let valid = prover.verify(&proof).unwrap();
+    print_execution_time("Proof verification finished", t0);
+    dbg!(valid);
+    assert!(valid);
 
     // let x = circom_prover::CircomProver::prove(
     //     circom_prover::prover::ProofLib::Arkworks,
@@ -267,6 +254,15 @@ fn main() {
     // )
     // .unwrap();
     // dbg!(x);
+}
+
+fn print_execution_time(msg: &str, start: Instant) {
+    let d = start.elapsed();
+    println!(
+        "INFO: {msg} {}.{:03} seconds",
+        d.as_secs(),
+        d.subsec_millis()
+    );
 }
 
 fn bebytes2limbs(coord: &[u8]) -> Vec<BigInt> {
