@@ -10,7 +10,7 @@ use ark_relations::r1cs::ConstraintMatrices;
 use circom_prover::prover::{
     CircomProof, ProofLib,
     ark_circom::{CircomReduction, ZkeyHeaderReader, read_zkey},
-    circom::Proof,
+    circom::{G1, G2, Proof},
 };
 use num_bigint::{BigInt, BigUint};
 use rand::thread_rng;
@@ -58,9 +58,11 @@ impl<'z> MultiuseProver<'z> {
         let mut reader = std::io::BufReader::new(file);
 
         let zkey = if header.r == BigUint::from(ark_bn254::Fr::MODULUS) {
+            dbg!("BN254");
             let x = read_zkey::<_, Bn254>(&mut reader)?;
             PKey::Bn256(x.0, x.1)
         } else if header.r == BigUint::from(ark_bls12_381::Fr::MODULUS) {
+            dbg!("BLS12-381");
             let x = read_zkey::<_, Bls12_381>(&mut reader)?;
             PKey::Bls12_381(x.0, x.1)
         } else {
@@ -189,4 +191,133 @@ impl PKey {
 
         Ok(proof)
     }
+}
+
+impl ProofWithPubInput {
+    pub fn to_snarkjs_proof(&self) -> Result<String> {
+        // let mut proof_json = std::collections::HashMap::new();
+        let proof = SnarkjsProof {
+            protocol: self.proof.protocol.clone(),
+            curve: self.proof.curve.clone(),
+            pi_a: vec![
+                self.proof.a.x.to_string(),
+                self.proof.a.y.to_string(),
+                self.proof.a.z.to_string(),
+            ],
+            pi_b: vec![
+                vec![self.proof.b.x[0].to_string(), self.proof.b.x[1].to_string()],
+                vec![self.proof.b.y[0].to_string(), self.proof.b.y[1].to_string()],
+                vec![self.proof.b.z[0].to_string(), self.proof.b.z[1].to_string()],
+            ],
+            pi_c: vec![
+                self.proof.c.x.to_string(),
+                self.proof.c.y.to_string(),
+                self.proof.c.z.to_string(),
+            ],
+        };
+        // proof_json.insert(
+        //     "pi_a",
+        //     serde_json::Value::Array(vec![
+        //         self.proof.a.x.to_string().into(),
+        //         self.proof.a.y.to_string().into(),
+        //         self.proof.a.z.to_string().into(),
+        //     ]),
+        // );
+        // proof_json.insert(
+        //     "pi_b",
+        //     serde_json::Value::Array(vec![
+        //         serde_json::Value::Array(vec![
+        //             self.proof.b.x[0].to_string().into(),
+        //             self.proof.b.x[1].to_string().into(),
+        //         ]),
+        //         serde_json::Value::Array(vec![
+        //             self.proof.b.y[0].to_string().into(),
+        //             self.proof.b.y[1].to_string().into(),
+        //         ]),
+        //         serde_json::Value::Array(vec![
+        //             self.proof.b.z[0].to_string().into(),
+        //             self.proof.b.z[1].to_string().into(),
+        //         ]),
+        //     ]),
+        // );
+        // proof_json.insert(
+        //     "pi_c",
+        //     serde_json::Value::Array(vec![
+        //         self.proof.c.x.to_string().into(),
+        //         self.proof.c.y.to_string().into(),
+        //         self.proof.c.z.to_string().into(),
+        //     ]),
+        // );
+        // proof_json.insert(
+        //     "protocol",
+        //     serde_json::Value::String(self.proof.protocol.to_owned()),
+        // );
+        // proof_json.insert(
+        //     "curve",
+        //     serde_json::Value::String(self.proof.curve.to_owned()),
+        // );
+        Ok(serde_json::to_string_pretty(&proof)?)
+    }
+
+    pub fn to_snarkjs_pubinput(&self) -> Result<String> {
+        let pub_input: Vec<String> = self
+            .pub_input
+            .iter()
+            .skip(1)
+            .map(|v| v.to_string())
+            .collect();
+        Ok(serde_json::to_string_pretty(&pub_input)?)
+    }
+
+    pub fn from_snarkjs_files(proof_path: &str, pubinput_path: &str) -> Result<Self> {
+        let f = std::fs::File::open(proof_path)?;
+        let proof: SnarkjsProof = serde_json::from_reader(f)?;
+
+        let f = std::fs::File::open(pubinput_path)?;
+        let pubinput: Vec<String> = serde_json::from_reader(f)?;
+
+        Ok(Self {
+            proof: Proof {
+                a: G1 {
+                    x: proof.pi_a[0].parse().unwrap(),
+                    y: proof.pi_a[1].parse().unwrap(),
+                    z: proof.pi_a[2].parse().unwrap(),
+                },
+                b: G2 {
+                    x: [
+                        proof.pi_b[0][0].parse().unwrap(),
+                        proof.pi_b[0][1].parse().unwrap(),
+                    ],
+                    y: [
+                        proof.pi_b[1][0].parse().unwrap(),
+                        proof.pi_b[1][1].parse().unwrap(),
+                    ],
+                    z: [
+                        proof.pi_b[2][0].parse().unwrap(),
+                        proof.pi_b[2][1].parse().unwrap(),
+                    ],
+                },
+                c: G1 {
+                    x: proof.pi_c[0].parse().unwrap(),
+                    y: proof.pi_c[1].parse().unwrap(),
+                    z: proof.pi_c[2].parse().unwrap(),
+                },
+                protocol: proof.protocol,
+                curve: proof.curve,
+            },
+            pub_input: [1u64.into()]
+                .into_iter()
+                .chain(pubinput.into_iter().map(|s| s.parse().unwrap()))
+                .collect(),
+        })
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SnarkjsProof {
+    protocol: String,
+    curve: String,
+    pi_a: Vec<String>,
+    pi_b: Vec<Vec<String>>,
+    pi_c: Vec<String>,
 }

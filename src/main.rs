@@ -3,6 +3,7 @@ use std::time::Instant;
 use std::{fs::File, io::Write};
 
 use ark_bn254::{Bn254, G1Affine};
+use ark_ec::AffineRepr;
 use ark_ec::pairing::Pairing as _;
 use ark_ec::{bls12::Bls12, bn::Bn};
 use ark_ff::PrimeField;
@@ -12,7 +13,7 @@ use ark_serialize::CanonicalDeserialize;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
 use circom_prover::prover::{ark_circom, arkworks::verify_circom_proof};
 use num_bigint::BigInt;
-use prover::MultiuseProver;
+use prover::{MultiuseProver, ProofWithPubInput};
 use sha2::Digest as _;
 use witness::sdjwtes256sha2561claim_witness;
 use wtns_file::WtnsFile;
@@ -108,6 +109,22 @@ fn main() {
     println!("{}", "-".repeat(64));
     println!();
 
+    {
+        println!("INFO: Verifying test proof ...");
+        let prover = MultiuseProver::new("zkey/dlpexample.zkey").unwrap();
+        let proof =
+            ProofWithPubInput::from_snarkjs_files("snark_proof2.json", "snark_public2.json")
+                .unwrap();
+        let t0 = Instant::now();
+        let valid = prover.verify(&proof).unwrap();
+        print_execution_time("Test Proof verification finished", t0);
+        dbg!(&proof, valid);
+    }
+
+    println!();
+    println!("{}", "-".repeat(64));
+    println!();
+
     /////////////////////////////////////////////////////////////////////////////////////
     // PoC circuit
     /////////////////////////////////////////////////////////////////////////////////////
@@ -173,15 +190,23 @@ fn main() {
     ];
     let input = [
         (
-            "in".into(),
+            "in".to_owned(),
             [pk_x, pk_y, sig_r, sig_s, payload, lengths]
                 .into_iter()
                 .flatten()
                 .collect(),
         ),
-        ("value".into(), zeropad_str(pos.value, MAX_VALUE_BYTES)),
+        ("value".to_owned(), zeropad_str(pos.value, MAX_VALUE_BYTES)),
     ];
     print_execution_time("Input preparation finished", t0);
+
+    // For going through circom-prover API
+    let input_json: std::collections::HashMap<&str, Vec<String>> = input
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.iter().map(|s| s.to_string()).collect()))
+        .collect();
+    let input_json = serde_json::to_string(&input_json).unwrap();
+    // dbg!(&input_json);
 
     println!("INFO: Generating witness ...");
     let t0 = Instant::now();
@@ -196,38 +221,39 @@ fn main() {
     // f.flush().unwrap();
     // drop(f);
 
-    // let prime = BigInt::parse_bytes(
-    //     b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
-    //     10,
-    // )
-    // .unwrap();
-    // let (sign, mut prime) = prime.to_bytes_be();
-    // assert_ne!(sign, num_bigint::Sign::Minus);
-    // prime.resize(32, 0);
-    // let prime: [u8; 32] = prime.try_into().unwrap();
-    // let wtns_file = WtnsFile {
-    //     version: 2,
-    //     header: wtns_file::Header {
-    //         field_size: 32,
-    //         prime: prime.into(),
-    //         witness_len: wit.len() as u32,
-    //     },
-    //     witness: wtns_file::Witness(
-    //         wit.iter()
-    //             .map(|v| {
-    //                 let (sign, mut v) = v.to_bytes_be();
-    //                 assert_ne!(sign, num_bigint::Sign::Minus);
-    //                 v.resize(32, 0);
-    //                 let v: [u8; 32] = v.try_into().unwrap();
-    //                 v.into()
-    //             })
-    //             .collect(),
-    //     ),
-    // };
-    // let mut f = std::fs::File::create("witness.wtns").unwrap();
-    // wtns_file.write(&mut f).unwrap();
-    // f.flush().unwrap();
-    // drop(f);
+    let prime = BigInt::parse_bytes(
+        b"21888242871839275222246405745257275088696311157297823662689037894645226208583",
+        // b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
+        10,
+    )
+    .unwrap();
+    let (sign, mut prime) = prime.to_bytes_be();
+    assert_ne!(sign, num_bigint::Sign::Minus);
+    prime.resize(32, 0);
+    let prime: [u8; 32] = prime.try_into().unwrap();
+    let wtns_file = WtnsFile {
+        version: 2,
+        header: wtns_file::Header {
+            field_size: 32,
+            prime: prime.into(),
+            witness_len: wit.len() as u32,
+        },
+        witness: wtns_file::Witness(
+            wit.iter()
+                .map(|v| {
+                    let (sign, mut v) = v.to_bytes_be();
+                    assert_ne!(sign, num_bigint::Sign::Minus);
+                    v.resize(32, 0);
+                    let v: [u8; 32] = v.try_into().unwrap();
+                    v.into()
+                })
+                .collect(),
+        ),
+    };
+    let mut f = std::fs::File::create("witness.wtns").unwrap();
+    wtns_file.write(&mut f).unwrap();
+    f.flush().unwrap();
+    drop(f);
 
     // dbg!(&wit[..32.min(wit.len())]);
     // dbg!(&witness[..(1 + 256)]);
@@ -237,23 +263,42 @@ fn main() {
     let t0 = Instant::now();
     let proof = prover.prove_noverify(wit).unwrap();
     print_execution_time("Proof generation finished", t0);
-    dbg!(&proof);
+    // dbg!(&proof);
 
-    println!("INFO: Veriying proof (locally) ...");
+    let proof_json = proof.to_snarkjs_proof().unwrap();
+    std::fs::write("proof.json", &proof_json).unwrap();
+    let pub_json = proof.to_snarkjs_pubinput().unwrap();
+    std::fs::write("public.json", &pub_json).unwrap();
+
+    println!("INFO: Verifying proof (locally) ...");
     let t0 = Instant::now();
     let valid = prover.verify(&proof).unwrap();
     print_execution_time("Proof verification finished", t0);
-    dbg!(valid);
-    assert!(valid);
+    dbg!(&proof, valid);
+    // assert!(valid);
 
-    // let x = circom_prover::CircomProver::prove(
-    //     circom_prover::prover::ProofLib::Arkworks,
-    //     circom_prover::witness::WitnessFn::RustWitness(witness::sdjwtes256sha2561claim_witness),
-    //     r"{}".to_owned(),
-    //     "zkey_tmp/sdjwt_es256_sha256_1claim.zkey".to_owned(),
-    // )
-    // .unwrap();
-    // dbg!(x);
+    let mut x = circom_prover::CircomProver::prove(
+        circom_prover::prover::ProofLib::Arkworks,
+        circom_prover::witness::WitnessFn::RustWitness(witness::sdjwtes256sha2561claim_witness),
+        input_json,
+        zkey_path.to_owned(),
+    )
+    .unwrap();
+    dbg!(&x);
+    let mut pub_input = vec![1u64.into()];
+    pub_input.append(&mut x.pub_inputs.0);
+    let proof = ProofWithPubInput {
+        proof: x.proof,
+        // Is undone in prover.verify
+        pub_input,
+    };
+
+    println!("INFO: Verifying proof #2 (locally) ...");
+    let t0 = Instant::now();
+    let valid = prover.verify(&proof).unwrap();
+    print_execution_time("Proof verification finished", t0);
+    dbg!(&proof, valid);
+    // assert!(valid);
 }
 
 fn print_execution_time(msg: &str, start: Instant) {
