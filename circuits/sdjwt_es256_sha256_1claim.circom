@@ -82,7 +82,6 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     assert(MAX_BYTES % 3 == 0);
     var MAX_BASE64 = MAX_BYTES / 3 * 4;
 
-    /*
     // Compute hash of JWT header+body
     // TODO: I don't think this verifies if the padding is correct, which could be an attack vector.
     // For payload_bytes=1024:   524.563 constraints (approx.)
@@ -111,7 +110,6 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     );
     assert(valid);
     valid === 1;
-    */
 
     // We are looking for a json key-value pair: `"key":.*[,}\]]` inside the base64.
     // The base64 decoder we currently have is not sha2 padding aware, so we should
