@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
 use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use ring::signature::ECDSA_P256_SHA256_FIXED;
 use sd_jwt_rs::{
-    ClaimsForSelectiveDisclosureStrategy, SDJWTHolder, SDJWTIssuer, SDJWTSerializationFormat,
-    SDJWTVerifier,
+    ClaimsForSelectiveDisclosureStrategy as SDStrategy, SDJWTHolder, SDJWTIssuer,
+    SDJWTSerializationFormat, SDJWTVerifier,
 };
 use serde::Deserialize;
-use serde_json::json;
 use sha2::Digest as _;
 
 const ISSUER_PRIVATE: &[u8] = b"
@@ -26,76 +26,42 @@ C/edCMRM78P8eQTBCDUTK1ywSYaszvQZvneiW6gNtWEJndSreEcyyUdVvg==
 -----END PUBLIC KEY-----
 ";
 
-// Method used to explore SD-JWT credential creation and its format.
-// Returns a SD-JWT Presentation
-pub fn explore() -> String {
-    // let issuer_secret = [0; 32];
-    // let issuer_key = EncodingKey::from_secret(&issuer_secret);
+fn new_credential(claims: serde_json::Value, sd_strategy: SDStrategy) -> Result<String> {
     let issuer_key = EncodingKey::from_ec_pem(ISSUER_PRIVATE).unwrap();
-    // let mut issuer = SDJWTIssuer::new(issuer_key, Some("HS256".to_owned()));
     let mut issuer = SDJWTIssuer::new(issuer_key, Some("ES256".to_owned()));
-    // let mut claims = serde_json::Map::new();
-    // claims.insert(
-    //     "given_name".to_owned(),
-    //     serde_json::Value::String("foobar".repeat(100)),
-    // );
-    let claims = json!({
-        "sub": "6c5c0a49-b589-431d-bae7-219122a9ec2c",
-        "iss": "https://example.com/issuer",
-        "iat": 1683000000,
-        "exp": 1883000000,
-        "address": {
-            "street_address": "Schulstr. 12",
-            "locality": "Schulpforta",
-            "region": "Sachsen-Anhalt".repeat(100),
-            "country": "DE"
-        },
-        "birthdate": "1940-01-01",
-        "given_name": "foobar",
-        "foo": "bar",
-        "baz": {
-            "hello": "world"
-        }
-    });
-    let sd_jwt = issuer
-        .issue_sd_jwt(
-            claims,
-            // ClaimsForSelectiveDisclosureStrategy::AllLevels,
-            ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.address"]),
-            None,
-            true,
-            // Only seems to affect the outer encoding
-            SDJWTSerializationFormat::Compact,
-        )
-        .unwrap();
-    dbg!(&sd_jwt);
-    let mut holder = SDJWTHolder::new(sd_jwt, SDJWTSerializationFormat::Compact).unwrap();
-    let serde_json::Value::Object(claims_to_disclose) = json!({
-        "address": {
-            "region": true,
-            "country": true
-        },
-        "given_name": true,
-    }) else {
-        unreachable!()
-    };
-    // let mut claims_to_disclose = serde_json::Map::new();
-    // claims_to_disclose.insert("given_name".to_owned(), serde_json::Value::Bool(true));
-    // Not sure how to request subfields. This doesn't seem to work. Further
-    // experimentation+reading code needed.
-    // claims_to_disclose.insert(
-    //     "address".to_owned(),
-    //     serde_json::Value::Array(vec![serde_json::Value::String("region".to_owned())]),
-    // );
-    // claims_to_disclose.insert("foo".to_owned(), serde_json::Value::Bool(true));
-    // claims_to_disclose.insert("baz".to_owned(), serde_json::Value::Bool(true));
+    Ok(issuer.issue_sd_jwt(
+        claims,
+        sd_strategy,
+        None,
+        true,
+        SDJWTSerializationFormat::Compact,
+    )?)
+}
+
+fn to_presentation(
+    credential: String,
+    claims_to_disclose: serde_json::Map<String, serde_json::Value>,
+) -> Result<String> {
+    let mut holder = SDJWTHolder::new(credential, SDJWTSerializationFormat::Compact).unwrap();
     let presentation = holder
         .create_presentation(claims_to_disclose, None, None, None, None)
         .unwrap();
-    dbg!(&presentation);
+
+    Ok(presentation)
+}
+
+pub fn new_presentation(
+    claims: serde_json::Value,
+    sd_strategy: SDStrategy,
+    claims_to_disclose: serde_json::Map<String, serde_json::Value>,
+) -> Result<String> {
+    let credential = new_credential(claims, sd_strategy)?;
+    to_presentation(credential, claims_to_disclose)
+}
+
+pub fn verify_presentation_lib(presentation: String) -> Result<serde_json::Value> {
     let verified_claims = SDJWTVerifier::new(
-        presentation.clone(),
-        // Box::new(move |_, _| DecodingKey::from_secret(&issuer_secret)),
+        presentation,
         Box::new(move |_, _| DecodingKey::from_ec_pem(ISSUER_PUBLIC).unwrap()),
         None,
         None,
@@ -103,11 +69,12 @@ pub fn explore() -> String {
     )
     .unwrap()
     .verified_claims;
-    dbg!(&verified_claims);
 
-    /////////////////////////////////////////////////////////////////////////////////////
-    // Manual presentation decoding (exploration)
-    /////////////////////////////////////////////////////////////////////////////////////
+    Ok(verified_claims)
+}
+
+#[allow(unused)]
+pub fn explain(presentation: &str) {
     let mut segments = presentation.split('~').enumerate();
     let (_, seg0) = segments.next().unwrap();
     let mut seg0_iter = seg0.split('.');
@@ -117,7 +84,8 @@ pub fn explore() -> String {
     let body = BASE64_URL_SAFE_NO_PAD.decode(body).unwrap();
     let header = String::from_utf8_lossy(&header);
     let body = String::from_utf8_lossy(&body);
-    dbg!(header, body);
+    println!("Header: {header}");
+    println!("Body: {body}");
 
     for (i, segment) in segments {
         // Segment 0: SD-JWT (contains sign_algorithm)
@@ -133,39 +101,10 @@ pub fn explore() -> String {
 
         let segment = BASE64_URL_SAFE_NO_PAD.decode(segment).unwrap();
         let segment = String::from_utf8_lossy(&segment);
-        dbg!(i, segment);
+        if segment.len() > 0 {
+            println!("Segment {i}: {segment}");
+        }
     }
-
-    let value = verify_extract_claim(&presentation, "given_name");
-    assert_eq!(value, Some(serde_json::Value::String("foobar".to_owned())));
-    let value = verify_extract_claim(&presentation, "address.country");
-    assert_eq!(value, Some(serde_json::Value::String("DE".to_owned())));
-
-    // let seg1 = segments.next().unwrap();
-    // let seg2 = segments.next().unwrap();
-    // let mut seg0_iter = seg0.split('.');
-    // let header = seg0_iter.next().unwrap();
-    // let body = seg0_iter.next().unwrap();
-    // let header = base64::prelude::BASE64_URL_SAFE_NO_PAD
-    //     .decode(header)
-    //     .unwrap();
-    // let body = base64::prelude::BASE64_URL_SAFE_NO_PAD
-    //     .decode(body)
-    //     .unwrap();
-    // let seg1 = base64::prelude::BASE64_URL_SAFE_NO_PAD
-    //     .decode(seg1)
-    //     .unwrap();
-    // let header = String::from_utf8_lossy(&header);
-    // let body = String::from_utf8_lossy(&body);
-    // let seg1 = String::from_utf8_lossy(&seg1);
-    // dbg!(&header, &body, &seg1, seg2);
-
-    // Cryptographic links
-    // Raw Output of SHA256 hash of base64url encoded disclosure (segment 1..n-1) is base64url encoded.
-    // - Do not base64 encode the hex of the hash (Cyberchef outputs the hex by default)
-    // - By default sha2-256 is used and that is (almost certainly) set at issuance time, not on presentation time.
-
-    presentation
 }
 
 // This function roughly showcases how we could implement the "extract a single claim value" with a
@@ -184,7 +123,7 @@ pub fn explore() -> String {
 //
 // NOTE: This implementation only supports objects being part of the claim path. Not array
 // indicies, though those can be added if required.
-fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_json::Value> {
+pub fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_json::Value> {
     // We do need the issuer public key from somewhere, and it probably has to be in the public
     // input in some form. Convert it to the right format (there are probably better/more reliable ways)
     let key = pem::parse(&ISSUER_PUBLIC).unwrap();
@@ -251,7 +190,6 @@ fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_json::V
         let key = path.next();
         // dbg!(&key, &current);
         let Some(key) = key else {
-            println!("Found the value");
             break;
         };
 

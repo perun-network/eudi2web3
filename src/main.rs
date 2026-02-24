@@ -1,22 +1,9 @@
-use std::ffi::{CStr, c_char, c_void};
 use std::time::Instant;
-use std::{fs::File, io::Write};
 
-use ark_bn254::{Bn254, G1Affine};
-use ark_ec::AffineRepr;
-use ark_ec::pairing::Pairing as _;
-use ark_ec::{bls12::Bls12, bn::Bn};
-use ark_ff::PrimeField;
-use ark_groth16::{Groth16, VerifyingKey};
-use ark_relations::r1cs::SynthesisError;
-use ark_serialize::CanonicalDeserialize;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
-use circom_prover::prover::{ark_circom, arkworks::verify_circom_proof};
 use num_bigint::BigInt;
-use prover::{MultiuseProver, ProofWithPubInput};
-use sha2::Digest as _;
-use witness::sdjwtes256sha2561claim_witness;
-use wtns_file::WtnsFile;
+use prover::MultiuseProver;
+use serde_json::json;
 
 // Generated code to go from input to witness.
 mod witness {
@@ -26,7 +13,6 @@ mod witness {
 }
 
 mod keyfinder;
-mod mdoc;
 mod prover;
 mod sdjwt;
 
@@ -102,48 +88,19 @@ mod runtime {
     }
 }
 
-fn main() {
-    let credential = sdjwt::explore();
+// Configuration of the circuit
+const MAX_PAYLOAD_BYTES: usize = 1024;
+const MAX_VALUE_BYTES: usize = 32;
 
-    println!();
-    println!("{}", "-".repeat(64));
-    println!();
+#[derive(Debug)]
+struct CircuitInput {
+    input: Vec<BigInt>,
+    value: Vec<BigInt>,
+}
 
-    {
-        println!("INFO: Verifying test proof ...");
-        let prover = MultiuseProver::new("zkey/dlpexample.zkey").unwrap();
-        let proof =
-            ProofWithPubInput::from_snarkjs_files("snark_proof2.json", "snark_public2.json")
-                .unwrap();
-        let t0 = Instant::now();
-        let valid = prover.verify(&proof).unwrap();
-        print_execution_time("Test Proof verification finished", t0);
-        dbg!(&proof, valid);
-    }
-
-    println!();
-    println!("{}", "-".repeat(64));
-    println!();
-
-    /////////////////////////////////////////////////////////////////////////////////////
-    // PoC circuit
-    /////////////////////////////////////////////////////////////////////////////////////
-
-    let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
-    let t0 = Instant::now();
-    let prover = MultiuseProver::new(zkey_path).unwrap();
-    print_execution_time("Prover loading finished", t0);
-
-    // Test with hard coded issuer public key.
-    let key = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
-    let key = key.contents();
-    let key = &key[key.len() - 65..];
-    assert_eq!(key[0], 0x04);
-
-    let t0 = Instant::now();
-
+fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> CircuitInput {
     // Get the relevant data from the credential to pass to input
-    let mut segments = credential.split('~');
+    let mut segments = presentation.split('~');
     let (message, sig) = segments
         .next()
         .expect("At least one segment")
@@ -154,7 +111,7 @@ fn main() {
     let sig = BASE64_URL_SAFE_NO_PAD.decode(sig).unwrap();
     assert_eq!(sig.len(), 64);
 
-    // TODO: Find the message offset for the key we are interested in.
+    // Find the message offset for the key we are interested in.
     let body_json = BASE64_URL_SAFE_NO_PAD.decode(body).unwrap();
     let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name").expect("invalid json");
     if pos.is_none() {
@@ -170,15 +127,11 @@ fn main() {
     let json_align = (pos.key_start_quote - 1) % 3;
     // dbg!(&pos, payload_off, json_align);
 
-    // Configuration of the circuit
-    const MAX_PAYLOAD_BYTES: usize = 1024;
-    const MAX_VALUE_BYTES: usize = 32;
-
     // Build the input
     // IMPORTANT: rust_witness fails silently if any input signal is missing, setting all
     // intermediate and output signals to 0.
-    let pk_x = bebytes2limbs(&key[1..1 + 32]);
-    let pk_y = bebytes2limbs(&key[1 + 32..]);
+    let pk_x = bebytes2limbs(&issuer_pk[..32]);
+    let pk_y = bebytes2limbs(&issuer_pk[32..]);
     let sig_r = bebytes2limbs(&sig[..32]);
     let sig_s = bebytes2limbs(&sig[32..]);
     let (payload, payload_padded_len) = str2binary_sha2padding(message, MAX_PAYLOAD_BYTES);
@@ -188,39 +141,24 @@ fn main() {
         payload_off.into(),
         json_align.into(),
     ];
-    let input = [
-        (
-            "in".to_owned(),
-            [pk_x, pk_y, sig_r, sig_s, payload, lengths]
-                .into_iter()
-                .flatten()
-                .collect(),
-        ),
-        ("value".to_owned(), zeropad_str(pos.value, MAX_VALUE_BYTES)),
-    ];
-    print_execution_time("Input preparation finished", t0);
+    CircuitInput {
+        input: [pk_x, pk_y, sig_r, sig_s, payload, lengths]
+            .into_iter()
+            .flatten()
+            .collect(),
+        value: zeropad_str(pos.value, MAX_VALUE_BYTES),
+    }
+}
 
-    // For going through circom-prover API
-    let input_json: std::collections::HashMap<&str, Vec<String>> = input
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.iter().map(|s| s.to_string()).collect()))
-        .collect();
-    let input_json = serde_json::to_string(&input_json).unwrap();
-    // dbg!(&input_json);
-
-    println!("INFO: Generating witness ...");
-    let t0 = Instant::now();
-    let wit = witness::sdjwtes256sha2561claim_witness(input);
-    print_execution_time("Witness generation finished", t0);
-
-    // dbg!(wit.len());
-    // let mut f = std::fs::File::create("./witness.txt").unwrap();
-    // for (i, v) in wit.iter().enumerate() {
-    //     writeln!(f, "{i:08}: {v}").unwrap();
-    // }
-    // f.flush().unwrap();
-    // drop(f);
-
+/*
+fn witness2txt(wit: &[BigInt], path: impl AsRef<Path>) {
+    let mut f = std::fs::File::create(path).unwrap();
+    for (i, v) in wit.iter().enumerate() {
+        writeln!(f, "{i:08}: {v}").unwrap();
+    }
+    f.flush().unwrap();
+}
+fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
     let prime = BigInt::parse_bytes(
         b"21888242871839275222246405745257275088696311157297823662689037894645226208583",
         // b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
@@ -250,55 +188,106 @@ fn main() {
                 .collect(),
         ),
     };
-    let mut f = std::fs::File::create("witness.wtns").unwrap();
+    let mut f = std::fs::File::create(path).unwrap();
     wtns_file.write(&mut f).unwrap();
     f.flush().unwrap();
     drop(f);
+}
+*/
 
-    // dbg!(&wit[..32.min(wit.len())]);
-    // dbg!(&witness[..(1 + 256)]);
-    // dbg!(&witness[(1+256+)..()]);
+fn main() {
+    // Create a credential for testing
+    let claims = json!({
+        "sub": "6c5c0a49-b589-431d-bae7-219122a9ec2c",
+        "iss": "https://example.com/issuer",
+        "iat": 1683000000,
+        "exp": 1883000000,
+        "address": {
+            "street_address": "Schulstr. 12",
+            "locality": "Schulpforta",
+            "region": "Sachsen-Anhalt",
+            "country": "DE"
+        },
+        "birthdate": "1940-01-01",
+        "given_name": "foobar",
+        "foo": "bar",
+        "baz": {
+            "hello": "world"
+        }
+    });
+    let sd_strategy = sd_jwt_rs::ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.address"]);
+    let serde_json::Value::Object(claims_to_disclose) = json!({
+        // "address": {
+        //     "region": true,
+        //     "country": true
+        // },
+        "given_name": true,
+    }) else {
+        unreachable!()
+    };
+    let presentation = sdjwt::new_presentation(claims, sd_strategy, claims_to_disclose).unwrap();
+
+    sdjwt::explain(&presentation);
+    println!("{}", "-".repeat(100));
+
+    // Just checking correctness (of the presentation and the claim extraction algorithm)
+    sdjwt::verify_presentation_lib(presentation.clone()).unwrap();
+    sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
+
+    // Setup prover and load key material
+    let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
+    let t0 = Instant::now();
+    let prover = MultiuseProver::new(zkey_path).unwrap();
+    print_execution_time("ZKey loading finished", t0);
+
+    // We test with hard coded issuer public key. In the long run this likely gets more complex.
+    let issuer_pk = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
+    let issuer_pk = issuer_pk.contents();
+    let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
+    assert_eq!(issuer_pk[0], 0x04);
+    let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
+
+    // Build the input
+    let t0 = Instant::now();
+    let input = presentation2input(&presentation, issuer_pk);
+    let input = [
+        ("in".to_owned(), input.input),
+        ("value".to_owned(), input.value),
+    ];
+    print_execution_time("Input preparation finished", t0);
+
+    println!("INFO: Generating witness ...");
+    let t0 = Instant::now();
+    let wit = witness::sdjwtes256sha2561claim_witness(input);
+    print_execution_time("Witness generation finished", t0);
 
     println!("INFO: Generating proof ...");
     let t0 = Instant::now();
     let proof = prover.prove_noverify(wit).unwrap();
     print_execution_time("Proof generation finished", t0);
-    // dbg!(&proof);
 
-    let proof_json = proof.to_snarkjs_proof().unwrap();
-    std::fs::write("proof.json", &proof_json).unwrap();
-    let pub_json = proof.to_snarkjs_pubinput().unwrap();
-    std::fs::write("public.json", &pub_json).unwrap();
-
-    println!("INFO: Verifying proof (locally) ...");
+    println!("INFO: Verifying proof ...");
     let t0 = Instant::now();
     let valid = prover.verify(&proof).unwrap();
     print_execution_time("Proof verification finished", t0);
-    dbg!(&proof, valid);
-    // assert!(valid);
 
-    let mut x = circom_prover::CircomProver::prove(
-        circom_prover::prover::ProofLib::Arkworks,
-        circom_prover::witness::WitnessFn::RustWitness(witness::sdjwtes256sha2561claim_witness),
-        input_json,
-        zkey_path.to_owned(),
-    )
-    .unwrap();
-    dbg!(&x);
-    let mut pub_input = vec![1u64.into()];
-    pub_input.append(&mut x.pub_inputs.0);
-    let proof = ProofWithPubInput {
-        proof: x.proof,
-        // Is undone in prover.verify
-        pub_input,
-    };
+    // Print the output in a more useful form
+    let pub_input_bytes: Vec<u8> = proof
+        .pub_input
+        .iter()
+        .skip(1)
+        .take(MAX_VALUE_BYTES)
+        .map(|v| v.try_into().unwrap_or(255))
+        .collect();
+    let pub_input_str = String::from_utf8_lossy(&pub_input_bytes);
+    println!("Value (from pub_input): {pub_input_str}");
+    if valid {
+        println!("Proof is valid");
+    } else {
+        println!("Proof is NOT valid");
+    }
 
-    println!("INFO: Verifying proof #2 (locally) ...");
-    let t0 = Instant::now();
-    let valid = prover.verify(&proof).unwrap();
-    print_execution_time("Proof verification finished", t0);
-    dbg!(&proof, valid);
-    // assert!(valid);
+    assert!(valid);
 }
 
 fn print_execution_time(msg: &str, start: Instant) {

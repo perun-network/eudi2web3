@@ -1,5 +1,4 @@
 use serde::Deserializer;
-use std::marker::PhantomData;
 
 use serde_json::de::SliceRead;
 use serde_json::value::RawValue;

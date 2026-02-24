@@ -5,10 +5,10 @@ use ark_bls12_381::Bls12_381;
 use ark_bn254::Bn254;
 use ark_ec::pairing::Pairing;
 use ark_ff::{PrimeField as _, UniformRand as _};
-use ark_groth16::{Groth16, ProvingKey};
+use ark_groth16::{Groth16, PreparedVerifyingKey, ProvingKey, prepare_verifying_key};
 use ark_relations::r1cs::ConstraintMatrices;
+use ark_snark::SNARK;
 use circom_prover::prover::{
-    CircomProof, ProofLib,
     ark_circom::{CircomReduction, ZkeyHeaderReader, read_zkey},
     circom::{G1, G2, Proof},
 };
@@ -30,14 +30,21 @@ mod witness {
 // The implementation provided by circom-prover also spawns a separate thread for generating the
 // witness, which does not really make sense as it does nothing in paralell besides reading the
 // ZKey, which can be done once in the beginning as shown here.
-pub struct MultiuseProver<'a> {
-    zkey: PKey,
-    pub zkey_path: &'a str,
+pub struct MultiuseProver {
+    zkey: Key,
 }
 
-enum PKey {
-    Bn256(ProvingKey<Bn254>, ConstraintMatrices<ark_bn254::Fr>),
-    Bls12_381(ProvingKey<Bls12_381>, ConstraintMatrices<ark_bls12_381::Fr>),
+enum Key {
+    Bn254 {
+        pkey: ProvingKey<Bn254>,
+        mats: ConstraintMatrices<ark_bn254::Fr>,
+        vkey: PreparedVerifyingKey<Bn254>,
+    },
+    Bls12_381 {
+        pkey: ProvingKey<Bls12_381>,
+        mats: ConstraintMatrices<ark_bls12_381::Fr>,
+        vkey: PreparedVerifyingKey<Bls12_381>,
+    },
 }
 
 #[derive(Debug)]
@@ -46,8 +53,8 @@ pub struct ProofWithPubInput {
     pub pub_input: Vec<BigUint>,
 }
 
-impl<'z> MultiuseProver<'z> {
-    pub fn new(zkey_path: &'z str) -> Result<Self> {
+impl MultiuseProver {
+    pub fn new(zkey_path: &str) -> Result<Self> {
         // First: Figure out which key we need. For some reason circom-prover doesn't use an enum
         // and doesn't do this for us.
         // It is a bit odd to open the file twice, but that seems to be the easiest way and is what
@@ -58,32 +65,37 @@ impl<'z> MultiuseProver<'z> {
         let mut reader = std::io::BufReader::new(file);
 
         let zkey = if header.r == BigUint::from(ark_bn254::Fr::MODULUS) {
-            dbg!("BN254");
-            let x = read_zkey::<_, Bn254>(&mut reader)?;
-            PKey::Bn256(x.0, x.1)
+            let (pkey, mats) = read_zkey::<_, Bn254>(&mut reader)?;
+            let vkey = prepare_verifying_key(&pkey.vk);
+            Key::Bn254 { pkey, mats, vkey }
         } else if header.r == BigUint::from(ark_bls12_381::Fr::MODULUS) {
-            dbg!("BLS12-381");
-            let x = read_zkey::<_, Bls12_381>(&mut reader)?;
-            PKey::Bls12_381(x.0, x.1)
+            let (pkey, mats) = read_zkey::<_, Bls12_381>(&mut reader)?;
+            let vkey = prepare_verifying_key(&pkey.vk);
+            Key::Bls12_381 { pkey, mats, vkey }
         } else {
             return Err(anyhow!("Unexpected curve in zkey"));
         };
 
-        Ok(Self { zkey, zkey_path })
+        Ok(Self { zkey })
     }
 
     pub fn verify(&self, proof: &ProofWithPubInput) -> Result<bool> {
         // Verify the proof so we know it is actually useful/correct
-        circom_prover::CircomProver::verify(
-            circom_prover::prover::ProofLib::Arkworks,
-            circom_prover::prover::CircomProof {
-                proof: proof.proof.clone(),
-                pub_inputs: circom_prover::prover::PublicInputs(proof.pub_input[1..].to_vec()),
-            },
-            self.zkey_path.to_owned(),
-        )
+        // For some reason loading the zkey with bls is really slow. To avoid doing that every time
+        // we need to re-implement some code from circom_prover.
+        self.zkey.verify_arkworks(proof)
+
+        // circom_prover::CircomProver::verify(
+        //     circom_prover::prover::ProofLib::Arkworks,
+        //     circom_prover::prover::CircomProof {
+        //         proof: proof.proof.clone(),
+        //         pub_inputs: circom_prover::prover::PublicInputs(proof.pub_input[1..].to_vec()),
+        //     },
+        //     self.zkey_path.to_owned(),
+        // )
     }
 
+    #[allow(unused)]
     pub fn prove(&self, witness: Vec<BigInt>) -> Result<(ProofWithPubInput, bool)> {
         let proof = self.prove_noverify(witness)?;
         let valid = self.verify(&proof)?;
@@ -117,29 +129,13 @@ impl<'z> MultiuseProver<'z> {
         // circom_prover::CircomProver::prove(proof_lib, wit_fn, json_input_str, zkey_path)
         Ok(ProofWithPubInput { proof, pub_input })
     }
-
-    // I'd love to allow &str for keys, but the to_witness functions expect owned Strings. Even
-    // though that's not strictly neccessary. The circom-prover implementation goes through even
-    // more steps, json deserialization and multiple allocations to achieve the same (if
-    // RustWitness is used.)
-    pub fn prove2_noverify<I>(
-        &self,
-        to_witness: impl FnOnce(I) -> Vec<BigInt>,
-        input: I,
-    ) -> Result<ProofWithPubInput>
-    where
-        I: IntoIterator<Item = (String, Vec<BigInt>)>,
-    {
-        let witness: Vec<BigInt> = to_witness(input);
-        self.prove_noverify(witness)
-    }
 }
 
-impl PKey {
+impl Key {
     fn num_instance_variables(&self) -> usize {
         match self {
-            PKey::Bn256(_, m) => m.num_instance_variables,
-            PKey::Bls12_381(_, m) => m.num_instance_variables,
+            Key::Bn254 { mats, .. } => mats.num_instance_variables,
+            Key::Bls12_381 { mats, .. } => mats.num_instance_variables,
         }
     }
 
@@ -149,11 +145,11 @@ impl PKey {
     // take an owned value and (hopefully) drop it early, freeing up the relevant memory.
     fn prove_arkworks(&self, witness: Vec<BigInt>) -> Result<Proof> {
         let proof = match self {
-            PKey::Bn256(pkey, matrices) => {
-                Self::prove_arkworks_inner(pkey, matrices, witness)?.into()
+            Key::Bn254 { pkey, mats, .. } => {
+                Self::prove_arkworks_inner(pkey, mats, witness)?.into()
             }
-            PKey::Bls12_381(pkey, matrices) => {
-                Self::prove_arkworks_inner(pkey, matrices, witness)?.into()
+            Key::Bls12_381 { pkey, mats, .. } => {
+                Self::prove_arkworks_inner(pkey, mats, witness)?.into()
             }
         };
         Ok(proof)
@@ -191,9 +187,38 @@ impl PKey {
 
         Ok(proof)
     }
+
+    fn verify_arkworks(&self, proof: &ProofWithPubInput) -> Result<bool> {
+        match self {
+            Key::Bn254 { vkey, .. } => Self::verify_arkworks_inner(vkey, proof),
+            Key::Bls12_381 { vkey, .. } => Self::verify_arkworks_inner(vkey, proof),
+        }
+    }
+    fn verify_arkworks_inner<P>(
+        vkey: &PreparedVerifyingKey<P>,
+        proof: &ProofWithPubInput,
+    ) -> Result<bool>
+    where
+        P: Pairing,
+        P::ScalarField: From<BigUint>,
+        ark_groth16::Proof<P>: From<Proof>,
+    {
+        let serialized_inputs: Vec<_> = (&proof.pub_input[1..])
+            .iter()
+            .map(|v| P::ScalarField::from(v.clone()))
+            .collect();
+
+        let valid = Groth16::<P, CircomReduction>::verify_with_processed_vk(
+            vkey,
+            &serialized_inputs,
+            &proof.proof.clone().into(),
+        )?;
+        Ok(valid)
+    }
 }
 
 impl ProofWithPubInput {
+    #[allow(unused)]
     pub fn to_snarkjs_proof(&self) -> Result<String> {
         // let mut proof_json = std::collections::HashMap::new();
         let proof = SnarkjsProof {
@@ -259,6 +284,7 @@ impl ProofWithPubInput {
         Ok(serde_json::to_string_pretty(&proof)?)
     }
 
+    #[allow(unused)]
     pub fn to_snarkjs_pubinput(&self) -> Result<String> {
         let pub_input: Vec<String> = self
             .pub_input
@@ -269,6 +295,7 @@ impl ProofWithPubInput {
         Ok(serde_json::to_string_pretty(&pub_input)?)
     }
 
+    #[allow(unused)]
     pub fn from_snarkjs_files(proof_path: &str, pubinput_path: &str) -> Result<Self> {
         let f = std::fs::File::open(proof_path)?;
         let proof: SnarkjsProof = serde_json::from_reader(f)?;

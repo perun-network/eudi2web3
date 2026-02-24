@@ -74,7 +74,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     signal input value[MAX_VALUE]; // 0-padded
 
     // Canary to detect when rust_witness doesn't have all inputs. Can be removed.
-    signal output test <== 99;
+    // signal output test <== 99;
 
     var key[MAX_KEY] = [103, 105, 118, 101, 110, 95, 110, 97, 109, 101]; // "given_name"
     var key_length = 10;

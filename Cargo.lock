@@ -782,6 +782,7 @@ dependencies = [
  "ark-groth16",
  "ark-relations",
  "ark-serialize",
+ "ark-snark",
  "base64 0.22.1",
  "bh-jws-utils 0.6.1",
  "bhmdoc",
