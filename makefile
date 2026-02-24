@@ -35,7 +35,7 @@ zkey/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
 zkey/%.zkey: zkey/%.r1cs
 	$(MAKE) $(PTAU)
 	@echo -e "\x1b[96mCircuit specific setup $*\x1b[0m"
-	time snarkjs groth16 setup $< $(PTAU) $@
+	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs groth16 setup $< $(PTAU) $@
 
 zkey/%.vkey.json: zkey/%.zkey
 	snarkjs zkey export verificationkey $< $@
