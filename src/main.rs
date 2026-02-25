@@ -7,7 +7,7 @@ use serde_json::json;
 
 // Generated code to go from input to witness.
 mod witness {
-    rust_witness::witness!(dlpexample);
+    // rust_witness::witness!(dlpexample);
     // rust_witness::witness!(sdjwt_es256_sha256_1claim);
     rust_witness::witness!(sdjwtes256sha2561claim);
 }

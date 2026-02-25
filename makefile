@@ -45,7 +45,7 @@ zkey/%.vkey.json: zkey/%.zkey
 zkey/.curve-%:
 	@echo "DELETE"
 	rm -f zkey/.curve-*
-	rm -r zkey/*
+	rm -rf zkey/*
 	touch $@
 
 ptau/bn254_%.ptau:
