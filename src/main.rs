@@ -235,6 +235,7 @@ fn main() {
     sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
 
     // Setup prover and load key material
+    println!("Loading zkey ...");
     let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
     let t0 = Instant::now();
     let prover = MultiuseProver::new(zkey_path).unwrap();

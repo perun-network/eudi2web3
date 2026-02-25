@@ -537,8 +537,7 @@ dependencies = [
 [[package]]
 name = "circom-prover"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82cb9d752c87c707a7741ee2b1f9186780e20b8ea0ddb9fd288173ee10ba738e"
+source = "git+https://github.com/zkmopro/mopro?branch=bls-script#2d986e8f1e950482cf31c7db9870663673fac102"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
