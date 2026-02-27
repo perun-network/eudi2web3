@@ -69,6 +69,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     var MAX_BYTES = 48;
     var MAX_KEY = 10;
     var MAX_VALUE = 32;
+    var CHECK_SIG = true;
 
     input SDJWT(payload_bytes, num_sd, sdbytes, path_depth) in;
     signal input value[MAX_VALUE]; // 0-padded
@@ -82,34 +83,36 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     assert(MAX_BYTES % 3 == 0);
     var MAX_BASE64 = MAX_BYTES / 3 * 4;
 
-    // Compute hash of JWT header+body
-    // TODO: I don't think this verifies if the padding is correct, which could be an attack vector.
-    // For payload_bytes=1024:   524.563 constraints (approx.)
-    // For payload_bytes=2048: 1.049.364 constraints (approx.)
-    // For payload_bytes=4096: 2.098.965 constraints (approx.)
-    signal hash_bin[256] <== Sha256General(payload_bytes*8)(
-        paddedIn <== in.payload,
-        paddedInLength <== in.payloadLength
-    );
+    if CHECK_SIG {
+        // Compute hash of JWT header+body
+        // TODO: I don't think this verifies if the padding is correct, which could be an attack vector.
+        // For payload_bytes=1024:   524.563 constraints (approx.)
+        // For payload_bytes=2048: 1.049.364 constraints (approx.)
+        // For payload_bytes=4096: 2.098.965 constraints (approx.)
+        signal hash_bin[256] <== Sha256General(payload_bytes*8)(
+            paddedIn <== in.payload,
+            paddedInLength <== in.payloadLength
+        );
 
-    // // output the hash in decimal bytes, useful for debugging the hash inputs.
-    // signal hash_bytes[32] <== BEBits2Array(256,32)(hash_bin);
-    // log("Hash:");
-    // for (var i = 0; i < 32; i++) {
-    //     log(hash_bytes[i]);
-    // }
+        // // output the hash in decimal bytes, useful for debugging the hash inputs.
+        // signal hash_bytes[32] <== BEBits2Array(256,32)(hash_bin);
+        // log("Hash:");
+        // for (var i = 0; i < 32; i++) {
+        //     log(hash_bytes[i]);
+        // }
 
-    // Check signature
-    // Regardless of configuration: 2.220.351 constraints
-    signal hash[6] <== BEBits2Limbs()(hash_bin);
-    var valid = ecdsa__ECDSAVerifyNoPubkeyCheck(43, 6)(
-        r <== in.sig.r, 
-        s <== in.sig.s,
-        pubkey <== in.pk,
-        msghash <== hash
-    );
-    assert(valid);
-    valid === 1;
+        // Check signature
+        // Regardless of configuration: 2.220.351 constraints
+        signal hash[6] <== BEBits2Limbs()(hash_bin);
+        var valid = ecdsa__ECDSAVerifyNoPubkeyCheck(43, 6)(
+            r <== in.sig.r, 
+            s <== in.sig.s,
+            pubkey <== in.pk,
+            msghash <== hash
+        );
+        assert(valid);
+        valid === 1;
+    }
 
     // We are looking for a json key-value pair: `"key":.*[,}\]]` inside the base64.
     // The base64 decoder we currently have is not sha2 padding aware, so we should
