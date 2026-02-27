@@ -187,6 +187,13 @@ fn main() {
     ];
     print_execution_time("Input preparation finished", t0);
 
+    let input_str = input
+        .iter()
+        .map(|(k, v)| (k, v.iter().map(|n| n.to_string()).collect::<Vec<String>>()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let input_str = serde_json::to_string(&input_str).unwrap();
+    std::fs::write("input.json", input_str).unwrap();
+
     println!("INFO: Generating witness ...");
     let t0 = Instant::now();
     let wit = witness::sdjwtes256sha2561claim_witness(input);

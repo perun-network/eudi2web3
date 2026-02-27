@@ -5,3 +5,6 @@
 # But it doesn't make much sense while the circuits keep changing.
 /zkey
 /ptau
+
+# useful for debugging
+input.json
