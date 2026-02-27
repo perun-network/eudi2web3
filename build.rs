@@ -350,7 +350,7 @@ void witness_c_cleanup(instance * i) {
         builder.compile("circuit");
     }
 
-    const W2C2_BUILD_SCRIPT: &str = include_str!("build_w2c2.sh");
+    const W2C2_BUILD_SCRIPT: &str = include_str!("scripts/build_w2c2.sh");
 
     /// Get a function to spawn w2c2, either from $PATH or by building locally
     // NOTE: Copied without changes
