@@ -27,7 +27,9 @@ r1cs-bls12381: zkey/sdjwt_es256_sha256_1claim.r1cs
 # - Fix circom imports going into node_modules, causing duplicate import issues
 # - Avoid circom symbol conflicts
 init:
-	git submodule update --recursive
+	mkdir ptau
+	mkdir zkey
+	git submodule update --init --recursive
 	scripts/circom_rename.sh circuits/circom-ecdsa-p256 ecdsa__
 
 clean:
