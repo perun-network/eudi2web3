@@ -102,7 +102,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // Check signature
     // Regardless of configuration: 2.220.351 constraints
     signal hash[6] <== BEBits2Limbs()(hash_bin);
-    var valid = ECDSAVerifyNoPubkeyCheck(43, 6)(
+    var valid = ecdsa__ECDSAVerifyNoPubkeyCheck(43, 6)(
         r <== in.sig.r, 
         s <== in.sig.s,
         pubkey <== in.pk,

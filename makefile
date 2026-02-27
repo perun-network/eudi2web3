@@ -1,7 +1,7 @@
 CIRCOM_SRC := $(shell find circuits -type d -name 'test*' -prune -o -type f -name '*.circom' -print)
 SHELL := /usr/bin/env bash
 
-.PHONY: bn254 .bls12381 r1cs r1cs-bls12381
+.PHONY: bn254 .bls12381 r1cs r1cs-bls12381 init
 
 # Compile circuits for this curve and prepare everything for cargo run.
 # This includes a 1-person setup and can be quite slow for large circuits
@@ -21,6 +21,14 @@ r1cs: zkey/sdjwt_es256_sha256_1claim.r1cs
 
 r1cs-bls12381: CURVE = bls12381
 r1cs-bls12381: zkey/sdjwt_es256_sha256_1claim.r1cs
+
+# Prepare the repo:
+# - initialize submodules
+# - Fix circom imports going into node_modules, causing duplicate import issues
+# - Avoid circom symbol conflicts
+init:
+	git submodule update --recursive
+	scripts/circom_rename.sh circuits/circom-ecdsa-p256 ecdsa__
 
 clean:
 	rm -r zkey/*
