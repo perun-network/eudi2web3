@@ -74,8 +74,8 @@ function renderQrCode(url) {
   qrDiv.innerHTML = "";
 
   const levels = [
-    QRCode.CorrectLevel.L,
     QRCode.CorrectLevel.M,
+    QRCode.CorrectLevel.L,
     QRCode.CorrectLevel.Q,
     QRCode.CorrectLevel.H,
   ];
