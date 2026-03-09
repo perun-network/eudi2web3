@@ -1,0 +1,15 @@
+{
+    "issuer": "https://127.0.0.1:8080",
+    "authorization_endpoint": "https://127.0.0.1:8080/auth",
+    "jwks_uri": "https://127.0.0.1/jwks.json",
+    "response_types_supported": [
+        "vp_token"
+    ],
+    "subject_types_supported": [
+        "pairwise",
+        "public"
+    ],
+    "id_token_signing_alg_values_supported": [
+        "ES256"
+    ]
+}

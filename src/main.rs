@@ -1,9 +1,11 @@
 use std::time::Instant;
 
+use axum::Router;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
 use num_bigint::BigInt;
 use prover::MultiuseProver;
 use serde_json::json;
+use tokio::net::{TcpListener, UnixListener};
 
 // Generated code to go from input to witness.
 mod witness {
@@ -16,6 +18,7 @@ mod witness {
 
 mod keyfinder;
 mod prover;
+mod routes;
 mod sdjwt;
 
 // Configuration of the circuit
@@ -125,7 +128,25 @@ fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
 }
 */
 
-fn main() {
+struct AppState {}
+
+#[tokio::main]
+async fn main() {
+    let bind = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
+
+    let state = AppState {};
+    let app = routes::build_router();
+
+    if bind.starts_with('/') {
+        let listener = UnixListener::bind(bind).unwrap();
+        axum::serve(listener, app).await.unwrap();
+    } else {
+        let listener = TcpListener::bind(bind).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
+    };
+}
+
+fn main1() {
     // Create a credential for testing
     let claims = json!({
         "sub": "6c5c0a49-b589-431d-bae7-219122a9ec2c",

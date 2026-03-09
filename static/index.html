@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Credential Submission</title>
+    <script src="/qrcode.js"></script>
+    <!-- <link href="css/style.css" rel="stylesheet"> -->
+</head>
+
+<body>
+    <h1>Step 1: Enter your cardano address</h1>
+    <p>
+        This form will submit the address to the server, which will ask you for your EUDI credential for creating a ZK
+        proof of it that can be published on-chain.
+    </p>
+
+    <form method="post" action="/api/request" id="submit_request_form">
+        <table>
+            <tr>
+                <td><label for="addr">Cardano address: </label></td>
+                <td><input type="text" name="addr" id="addr" required></td>
+            </tr>
+            <!-- <tr> -->
+            <!--     <td><label for="post_onchain">Ask server to post it on-chain: </label></td> -->
+            <!--     <td><input type="checkbox" name="post_onchain" id="post_onchain" disabled> (not yet supported)</td> -->
+            <!-- </tr> -->
+            <tr>
+                <td></td>
+                <td><button type="submit">Submit</button></td>
+            </tr>
+        </table>
+    </form>
+    <div id="output" style="display:none;">
+        <h1>Step 2: Authenticate using EUDI wallet</h1>
+        <div id="qr" style="margin: 1rem;"></div>
+        Or
+        <a href="" id="openid_link">Open with your wallet</a>
+    </div>
+
+    <script>
+        const form = document.getElementById("submit_request_form");
+        const output_div = document.getElementById("output");
+        const openid_link = document.getElementById("openid_link");
+        const qr_div = document.getElementById("qr");
+
+        form.addEventListener("submit", async e => {
+            e.preventDefault();
+
+            const response = await fetch(form.action, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    "addr": form.addr.value
+                }),
+            });
+            if (response.ok) {
+                const url = await response.text();
+                console.log(url, url.length);
+                output_div.style.display = "block";
+                openid_link.href = url;
+                qr_div.innerHTML = "";
+                new QRCode(qr_div, {
+                    text: url,
+                    width: 400,
+                    height: 400,
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            } else {
+                output_div.style.display = "none";
+                const text = await response.text();
+                console.log(text);
+                alert(`Error while sending form: ${response.status}\n${text}`);
+            }
+        });
+
+    </script>
+</body>
+
+</html>
