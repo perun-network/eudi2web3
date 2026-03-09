@@ -72,13 +72,39 @@ function resetTxAction() {
 
 function renderQrCode(url) {
   qrDiv.innerHTML = "";
-  new QRCode(qrDiv, {
-    text: url,
-    width: 280,
-    height: 280,
-    colorDark: "#081B3A",
-    colorLight: "#FFFFFF",
-  });
+
+  const levels = [
+    QRCode.CorrectLevel.M,
+    QRCode.CorrectLevel.L,
+    QRCode.CorrectLevel.Q,
+    QRCode.CorrectLevel.H,
+  ];
+
+  for (const correctLevel of levels) {
+    try {
+      new QRCode(qrDiv, {
+        text: url,
+        width: 280,
+        height: 280,
+        colorDark: "#081B3A",
+        colorLight: "#FFFFFF",
+        correctLevel,
+      });
+      return true;
+    } catch (error) {
+      qrDiv.innerHTML = "";
+      if (!(error instanceof Error) || !error.message.includes("code length overflow")) {
+        throw error;
+      }
+    }
+  }
+
+  qrDiv.innerHTML = `
+    <p class="qr-fallback-message">
+      QR code unavailable for this request size. Use the wallet link below.
+    </p>
+  `;
+  return false;
 }
 
 function getRequestFailureMessage(error) {
