@@ -2,80 +2,206 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Credential Submission</title>
-    <script src="/qrcode.js"></script>
-    <!-- <link href="css/style.css" rel="stylesheet"> -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EUDI4Cardano - Credential Verification</title>
+  <meta name="description" content="Bridge your European Digital Identity wallet with Cardano. Generate privacy-preserving zero-knowledge proofs of your EUDI credentials for on-chain use.">
+  <meta property="og:title" content="EUDI4Cardano - Credential Verification">
+  <meta property="og:description" content="Bridge your European Digital Identity wallet with Cardano. Generate privacy-preserving zero-knowledge proofs of your EUDI credentials for on-chain use.">
+  <meta property="og:image" content="assets/logo.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="assets/favicon.png" type="image/png">
+  <script>
+    (() => {
+      const storedTheme = localStorage.getItem("theme");
+      const systemTheme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", storedTheme || systemTheme);
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link href="css/style.css" rel="stylesheet">
+  <script src="/qrcode.js"></script>
 </head>
 
 <body>
-    <h1>Step 1: Enter your cardano address</h1>
-    <p>
-        This form will submit the address to the server, which will ask you for your EUDI credential for creating a ZK
-        proof of it that can be published on-chain.
-    </p>
-
-    <form method="post" action="/api/request" id="submit_request_form">
-        <table>
-            <tr>
-                <td><label for="addr">Cardano address: </label></td>
-                <td><input type="text" name="addr" id="addr" required></td>
-            </tr>
-            <!-- <tr> -->
-            <!--     <td><label for="post_onchain">Ask server to post it on-chain: </label></td> -->
-            <!--     <td><input type="checkbox" name="post_onchain" id="post_onchain" disabled> (not yet supported)</td> -->
-            <!-- </tr> -->
-            <tr>
-                <td></td>
-                <td><button type="submit">Submit</button></td>
-            </tr>
-        </table>
-    </form>
-    <div id="output" style="display:none;">
-        <h1>Step 2: Authenticate using EUDI wallet</h1>
-        <div id="qr" style="margin: 1rem;"></div>
-        Or
-        <a href="" id="openid_link">Open with your wallet</a>
+  <header class="site-header">
+    <div class="container">
+      <a href="/" class="brand">
+        <img src="assets/logo-header.png" alt="EUDI4Cardano" class="brand-logo brand-logo-light">
+        <img src="assets/logo-header-dark.png" alt="EUDI4Cardano" class="brand-logo brand-logo-dark">
+      </a>
+      <div class="site-header-actions">
+        <nav class="site-nav" aria-label="Main navigation">
+          <a href="https://projectcatalyst.io/funds/14/cardano-use-cases-concepts/eudi4cardano-interoperability-of-eudi-wallets-with-cardano" target="_blank" rel="noopener noreferrer">Catalyst</a>
+          <a href="https://github.com/perun-network/eudi2web3" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="#" target="_blank" rel="noopener noreferrer">Docs</a>
+        </nav>
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch color theme" aria-pressed="false">
+          <span class="theme-toggle-label" id="theme-toggle-label">Light mode</span>
+        </button>
+      </div>
     </div>
+  </header>
 
-    <script>
-        const form = document.getElementById("submit_request_form");
-        const output_div = document.getElementById("output");
-        const openid_link = document.getElementById("openid_link");
-        const qr_div = document.getElementById("qr");
+  <main>
+    <section class="hero">
+      <div class="container">
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          Project Catalyst · Fund 14
+        </div>
+        <h1 class="hero-title">
+          Trusted identity proofs<br>
+          for <em>Cardano</em> applications
+        </h1>
+        <p class="hero-description">
+          EUDI4Cardano bridges European Digital Identity wallets with the Cardano ecosystem.
+          Submit your Cardano address, authenticate with your EUDI wallet, and generate a
+          privacy-preserving zero-knowledge proof of your credential - ready to publish on-chain.
+        </p>
+      </div>
+    </section>
 
-        form.addEventListener("submit", async e => {
-            e.preventDefault();
+    <section class="flow-section" aria-label="Credential verification flow">
+      <div class="container">
+        <div class="flow-card" id="step1-card">
+          <span class="step-label">Step 01</span>
+          <h2>Enter your Cardano address</h2>
+          <p class="step-description">
+            Submit your address to the server. It will request your EUDI credential
+            and create a zero-knowledge proof that can be published on-chain.
+          </p>
 
-            const response = await fetch(form.action, {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({
-                    "addr": form.addr.value
-                }),
-            });
-            if (response.ok) {
-                const url = await response.text();
-                console.log(url, url.length);
-                output_div.style.display = "block";
-                openid_link.href = url;
-                qr_div.innerHTML = "";
-                new QRCode(qr_div, {
-                    text: url,
-                    width: 400,
-                    height: 400,
-                    correctLevel: QRCode.CorrectLevel.M
-                });
-            } else {
-                output_div.style.display = "none";
-                const text = await response.text();
-                console.log(text);
-                alert(`Error while sending form: ${response.status}\n${text}`);
-            }
-        });
+          <form method="post" action="/api/request" id="submit_request_form" novalidate>
+            <div class="form-group">
+              <label for="addr" class="form-label">Cardano Address</label>
+              <input
+                type="text"
+                name="addr"
+                id="addr"
+                required
+                aria-describedby="addr-error"
+                placeholder="addr1..."
+                class="form-input mono"
+                autocomplete="off"
+                spellcheck="false"
+              >
+              <p id="addr-error" class="form-error" style="display: none;" role="alert"></p>
+            </div>
+            <button type="submit" class="btn btn-primary" id="submit-btn">
+              <span class="btn-text">Request Credential Proof</span>
+              <span class="btn-loader" aria-hidden="true"></span>
+            </button>
+          </form>
+        </div>
 
-    </script>
+        <div id="output" class="flow-card" style="display: none;">
+          <span class="step-label">Step 02</span>
+          <h2>Authenticate with your EUDI Wallet</h2>
+          <p class="step-description">
+            Scan the QR code with your EUDI-compliant wallet, or tap the link below
+            to complete authentication and credential verification.
+          </p>
+
+          <div class="qr-section">
+            <div id="qr" class="qr-container"></div>
+          </div>
+
+          <div class="wallet-link-row">
+            <span class="link-separator">or open directly</span>
+            <a href="" id="openid_link" class="btn btn-outline">Open with your wallet</a>
+          </div>
+        </div>
+
+        <div id="step3" class="flow-card" style="display: none;">
+          <span class="step-label">Step 03</span>
+          <h2>Zero-Knowledge Proof Generation</h2>
+          <p class="step-description">
+            Your credential is being processed on the server. A privacy-preserving
+            zero-knowledge proof is being generated - this may take a moment.
+          </p>
+
+          <div id="queue-status" class="queue-status">
+            <div class="queue-top">
+              <div class="queue-position-block">
+                <div class="queue-numbers">
+                  <span class="queue-pos-value" id="queue-pos">-</span>
+                  <span class="queue-pos-sep">/</span>
+                  <span class="queue-pos-total" id="queue-total">-</span>
+                </div>
+                <span class="queue-pos-label">Position in queue</span>
+              </div>
+              <div class="queue-meta">
+                <div class="queue-state-badge" id="queue-state-badge" data-state="queued">
+                  <span class="queue-state-dot"></span>
+                  <span id="queue-state-text">Queued</span>
+                </div>
+                <span class="queue-eta" id="queue-eta"></span>
+              </div>
+            </div>
+            <div class="queue-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="queue-progress-track">
+              <div class="queue-progress-fill" id="queue-progress-fill"></div>
+            </div>
+            <p id="queue-error" class="queue-error" style="display: none;" role="alert"></p>
+          </div>
+
+          <div id="proof-result" class="proof-result" style="display: none;">
+            <div class="proof-result-header">
+              <span class="proof-ready-badge">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                Proof ready
+              </span>
+              <button class="btn-copy-proof" id="copy-proof-btn">Copy JSON</button>
+            </div>
+            <pre class="proof-json-block" id="proof-json-block"><code id="proof-json-code"></code></pre>
+
+            <div class="tx-actions">
+              <a href="#" id="tx-explorer-link" class="btn btn-outline" target="_blank" rel="noopener noreferrer" style="display: none;">
+                View on Cardanoscan
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true" style="margin-left:2px">
+                  <path d="M2 9L9 2M9 2H4M9 2v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </a>
+              <button class="btn btn-primary" id="submit-tx-btn" style="display: none;">
+                <span class="btn-text">Submit Transaction</span>
+                <span class="btn-loader" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-brand">
+        <img src="assets/icon-footer.png" alt="" class="footer-icon" aria-hidden="true">
+        <span>EUDI4Cardano</span>
+      </div>
+      <p class="footer-tagline">Interoperability of EUDI Wallets with Cardano</p>
+      <nav class="footer-links" aria-label="Footer links">
+        <a href="https://projectcatalyst.io/funds/14/cardano-use-cases-concepts/eudi4cardano-interoperability-of-eudi-wallets-with-cardano" target="_blank" rel="noopener noreferrer">Project Catalyst</a>
+        <span class="footer-divider" aria-hidden="true">·</span>
+        <a href="https://github.com/perun-network/eudi2web3" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <span class="footer-divider" aria-hidden="true">·</span>
+        <a href="#" target="_blank" rel="noopener noreferrer">Documentation</a>
+        <span class="footer-divider" aria-hidden="true">·</span>
+        <a href="#" target="_blank" rel="noopener noreferrer">Contact</a>
+      </nav>
+      <p class="footer-legal">
+        Built with support from the Cardano community via Project Catalyst Fund 14.
+      </p>
+    </div>
+  </footer>
+
+  <script src="js/app.js"></script>
 </body>
 
 </html>
