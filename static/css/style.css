@@ -592,6 +592,14 @@ main {
   line-height: 0; /* remove ghost gap below canvas */
 }
 
+.qr-fallback-message {
+  max-width: 18rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-midnight-navy);
+  text-align: center;
+}
+
 .wallet-link-row {
   display: flex;
   align-items: center;
