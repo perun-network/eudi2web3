@@ -1,4 +1,9 @@
-use std::time::Instant;
+use std::{
+    collections::{HashMap, VecDeque},
+    ops::{Deref, DerefMut},
+    sync::{Arc, atomic::AtomicU64},
+    time::Instant,
+};
 
 use axum::Router;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
@@ -128,14 +133,55 @@ fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
 }
 */
 
-struct AppState {}
+#[derive(Debug, Default)]
+struct AppState {
+    /// Incomplete jobs (e.g. still waiting on credential VP)
+    pub partial: tokio::sync::Mutex<HashMapAutokey<PartialJob>>,
+    pub queue: tokio::sync::Mutex<VecDeque<Job>>,
+    pub queue_head: AtomicU64,
+}
+
+#[derive(Debug)]
+struct HashMapAutokey<T> {
+    data: HashMap<u64, T>,
+    next: u64,
+}
+
+impl<T> Default for HashMapAutokey<T> {
+    fn default() -> Self {
+        Self {
+            data: Default::default(),
+            next: 0,
+        }
+    }
+}
+impl<T> HashMapAutokey<T> {
+    pub fn push(&mut self, value: T) -> u64 {
+        let key = self.next;
+        self.next += 1;
+        self.data.insert(key, value);
+        key
+    }
+}
+
+#[derive(Debug)]
+enum PartialJob {
+    Partial { cardano_addr: String },
+    Queued(u64),
+}
+#[derive(Debug)]
+struct Job {
+    pub cardano_addr: String,
+    pub vp_token: String,
+    pub id: u64,
+}
 
 #[tokio::main]
 async fn main() {
     let bind = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
 
-    let state = AppState {};
-    let app = routes::build_router();
+    let state = Arc::new(AppState::default());
+    let app = routes::build_router().with_state(state);
 
     if bind.starts_with('/') {
         let listener = UnixListener::bind(bind).unwrap();

@@ -93,7 +93,10 @@ function renderQrCode(url) {
       return true;
     } catch (error) {
       qrDiv.innerHTML = "";
-      if (!(error instanceof Error) || !error.message.includes("code length overflow")) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes("code length overflow")
+      ) {
         throw error;
       }
     }
@@ -125,9 +128,13 @@ function getCurrentTheme() {
 
 function syncThemeUi(theme) {
   const nextTheme = theme === "dark" ? "light" : "dark";
-  themeToggle.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+  themeToggle.setAttribute(
+    "aria-pressed",
+    theme === "light" ? "true" : "false",
+  );
   themeToggle.setAttribute("aria-label", `Switch to ${nextTheme} mode`);
-  themeToggleLabel.textContent = nextTheme === "light" ? "Light mode" : "Dark mode";
+  themeToggleLabel.textContent =
+    nextTheme === "light" ? "Light mode" : "Dark mode";
 }
 
 function setTheme(theme) {
@@ -193,18 +200,6 @@ function resetStepState() {
   resetTxAction();
 }
 
-function extractRequestId(openidUrl) {
-  try {
-    const url = new URL(openidUrl);
-    return url.searchParams.get("request_id")
-      || url.searchParams.get("nonce")
-      || url.searchParams.get("state")
-      || url.searchParams.get("id");
-  } catch {
-    return null;
-  }
-}
-
 function showQueueError(message) {
   setVisible(queueStatusDiv, true);
   setVisible(proofResultDiv, false);
@@ -215,24 +210,31 @@ function showQueueError(message) {
 }
 
 function applyQueueUpdate(data) {
-  const { status, queue_position, queue_total, eta_seconds, proof, tx_hash, tx_cbor } = data;
+  const { status, queue_pos, queue_len, eta_seconds, proof, tx_hash, tx_cbor } =
+    data;
 
-  if (status === "queued" || status === "processing") {
+  if (status === "queued") {
     setVisible(queueStatusDiv, true);
     setVisible(proofResultDiv, false);
     clearQueueError();
 
-    if (queue_position != null) queuePosEl.textContent = queue_position;
-    if (queue_total != null) queueTotalEl.textContent = queue_total;
+    if (queue_pos != null) queuePosEl.textContent = queue_pos;
+    if (queue_len != null) queueTotalEl.textContent = queue_len;
 
-    if (queue_position != null && queue_total != null && queue_total > 0) {
-      const pct = Math.max(4, Math.min(96, ((queue_total - queue_position) / queue_total) * 100));
+    if (queue_pos != null && queue_len != null && queue_len > 0) {
+      const pct = Math.max(
+        4,
+        Math.min(96, ((queue_len - queue_pos) / queue_len) * 100),
+      );
       setQueueProgress(pct);
     }
 
-    queueEtaEl.textContent = eta_seconds != null
-      ? (eta_seconds >= 60 ? `~${Math.ceil(eta_seconds / 60)} min remaining` : `~${eta_seconds}s remaining`)
-      : "";
+    queueEtaEl.textContent =
+      eta_seconds != null
+        ? eta_seconds >= 60
+          ? `~${Math.ceil(eta_seconds / 60)} min remaining`
+          : `~${eta_seconds}s remaining`
+        : "";
 
     setQueueState(status, status === "processing" ? "Processing" : "Queued");
     return;
@@ -259,17 +261,11 @@ function applyQueueUpdate(data) {
   }
 }
 
-function startProofPolling(openidUrl) {
-  const requestId = extractRequestId(openidUrl);
-  if (!requestId) {
-    console.warn("Could not extract request ID - proof polling disabled.");
-    return;
-  }
-
+function startProofPolling(requestId) {
   stopProofPolling();
   activePollRequestId = requestId;
 
-  const statusUrl = `/api/proof-status/${encodeURIComponent(requestId)}`;
+  const statusUrl = `/api/status/${requestId}`;
 
   setVisible(step3Div, true);
   scrollIntoViewSoon(step3Div, "nearest", 400);
@@ -346,14 +342,14 @@ function initializeProofRequest() {
         return;
       }
 
-      const url = await response.text();
+      const res = await response.json();
       setVisible(outputDiv, true);
       scrollIntoViewSoon(outputDiv, "start");
 
-      openidLink.href = url;
-      renderQrCode(url);
+      openidLink.href = res.url;
+      renderQrCode(res.url);
 
-      startProofPolling(url);
+      startProofPolling(res.id);
     } catch (err) {
       console.error("Request failed:", err);
       alert(getRequestFailureMessage(err));
@@ -368,15 +364,20 @@ function initializeCopyProof() {
     const proofText = proofJsonCode.textContent;
     if (!proofText) return;
 
-    navigator.clipboard.writeText(proofText).then(() => {
-      copyProofBtn.textContent = "Copied!";
-      setTimeout(() => {
-        copyProofBtn.textContent = "Copy JSON";
-      }, 2000);
-    }).catch((err) => {
-      console.error("Clipboard write failed:", err);
-      alert("Copy failed. Your browser may block clipboard access in this context.");
-    });
+    navigator.clipboard
+      .writeText(proofText)
+      .then(() => {
+        copyProofBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyProofBtn.textContent = "Copy JSON";
+        }, 2000);
+      })
+      .catch((err) => {
+        console.error("Clipboard write failed:", err);
+        alert(
+          "Copy failed. Your browser may block clipboard access in this context.",
+        );
+      });
   });
 }
 

@@ -1,28 +1,49 @@
-use axum::{Form, Json, Router, http::StatusCode, response::IntoResponse, routing::post};
+use std::sync::{Arc, atomic::Ordering};
+
+use axum::{
+    Form, Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+};
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
 use rand::{Rng, distributions::Alphanumeric};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Digest as _;
+
+use crate::{AppState, PartialJob};
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
 const REQUEST_CERT: &str = "/var/www/eudi2web3/fubar_cert.pem";
 const REQUEST_PRIVKEY: &str = "/var/www/eudi2web3/fubar_privkey.pem";
 
-pub fn build_router() -> Router {
+pub fn build_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/submit_data", post(submit_data))
-        .route("/vp_request", post(vp_request))
-        .route("/vp_auth", post(vp_auth))
+        .route("/vp_request/{id}", post(vp_request))
+        .route("/vp_auth/{id}", post(vp_auth))
+        .route("/status", get(status))
+        .route("/get_queue_pos/{id}", get(get_queue_pos))
 }
 
 #[derive(Debug, Deserialize)]
-struct RequestData {
+struct SubmitDataRequest {
     addr: String,
 }
 
+#[derive(Debug, Serialize)]
+struct SubmitDataResponse {
+    url: String,
+    id: u64,
+}
+
 /// Submit the address as the first step (will request a credential presentation)
-async fn submit_data(Json(data): Json<RequestData>) -> impl IntoResponse {
+async fn submit_data(
+    State(state): State<Arc<AppState>>,
+    Json(data): Json<SubmitDataRequest>,
+) -> Json<SubmitDataResponse> {
     let certs = std::fs::read_to_string(REQUEST_CERT).unwrap();
     let certs = pem::parse_many(certs).unwrap();
 
@@ -32,15 +53,19 @@ async fn submit_data(Json(data): Json<RequestData>) -> impl IntoResponse {
     let x509_hash = sha2::Sha256::digest(certs[0].contents());
     let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(&x509_hash);
 
+    let id = state.partial.lock().await.push(PartialJob::Partial {
+        cardano_addr: data.addr,
+    });
+
     let url = format!(
         "\
 openid4vp://?\
 client_id=x509_hash%3A{x509_hash}&\
-request_uri=https%3A%2F%2F{DOMAIN}%2Fapi%2Fvp_request&\
+request_uri=https%3A%2F%2F{DOMAIN}%2Fapi%2Fvp_request%2F{id}&\
 request_uri_method=post"
     );
 
-    (StatusCode::OK, url)
+    Json(SubmitDataResponse { url, id })
 }
 
 #[derive(Deserialize)]
@@ -48,7 +73,7 @@ struct WalletRequest {
     wallet_nonce: String,
 }
 
-async fn vp_request(Form(w): Form<WalletRequest>) -> impl IntoResponse {
+async fn vp_request(Path(id): Path<u64>, Form(w): Form<WalletRequest>) -> impl IntoResponse {
     // The wallet wants the certificate chain as base64 encoded DER. It probably can't be
     // self-signed. Easiest (+ recommended) way I've found was to use the TLS certificate.
     let certs = std::fs::read_to_string(REQUEST_CERT).unwrap();
@@ -86,7 +111,7 @@ async fn vp_request(Form(w): Form<WalletRequest>) -> impl IntoResponse {
         .collect();
 
     let body = json!({
-        "response_uri": format!("https://{DOMAIN}/api/vp_auth"),
+        "response_uri": format!("https://{DOMAIN}/api/vp_auth/{id}"),
         "client_id": format!("x509_hash:{x509_hash}"),
         "response_mode": "direct_post",
         "response_type": "vp_token",
@@ -142,12 +167,60 @@ struct VpToken {
 /// Endpoint to receive the credential
 ///
 /// See https://openid.net/specs/openid-connect-core-1_0.html
-async fn vp_auth(Form(data): Form<AuthData>) -> StatusCode {
+async fn vp_auth(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<u64>,
+    Form(data): Form<AuthData>,
+) -> StatusCode {
     dbg!("auth");
-    dbg!(&data);
+
+    let mut guard = state.partial.lock().await;
+    let job = guard.data.get_mut(&id);
+    dbg!(id, &data, &job);
+
+    if let Some(job) = job {
+        *job = PartialJob::Queued(42)
+    }
 
     let data: VpToken = serde_json::from_str(&data.vp_token).unwrap();
     dbg!(&data.q0);
 
     StatusCode::OK
+}
+
+#[derive(Debug, Serialize)]
+struct GetQueuePosResponse {
+    pos: u64,
+    status: &'static str,
+}
+
+async fn get_queue_pos(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<u64>,
+) -> Result<Json<GetQueuePosResponse>, StatusCode> {
+    let guard = state.partial.lock().await;
+    let job = guard.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(match job {
+        PartialJob::Partial { .. } => GetQueuePosResponse {
+            pos: 0,
+            status: "waiting_for_vp",
+        },
+        PartialJob::Queued(pos) => GetQueuePosResponse {
+            pos: *pos,
+            status: "queued",
+        },
+    }))
+}
+
+#[derive(Debug, Serialize)]
+struct StatusResponse {
+    head: u64,
+    len: usize,
+}
+
+async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
+    Json(StatusResponse {
+        head: state.queue_head.load(Ordering::Relaxed),
+        len: state.queue.lock().await.len(),
+    })
 }
