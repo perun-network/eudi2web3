@@ -24,8 +24,8 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .route("/submit_data", post(submit_data))
         .route("/vp_request/{id}", post(vp_request))
         .route("/vp_auth/{id}", post(vp_auth))
-        .route("/get_queue_pos/{id}", get(get_queue_pos))
         .route("/status", get(status))
+        .route("/status/{id}", get(job_status))
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,7 +188,7 @@ async fn vp_auth(
 
     // Move the job to the queue and mark it as moved.
     let mut guard = state.mu.lock().await;
-    let pos = guard.queue_head.load(Ordering::Relaxed) + guard.queue.len() as u64;
+    let pos = state.queue_head.load(Ordering::Relaxed) + state.queue.len() as u64;
     let old = guard
         .lookup
         .data
@@ -202,32 +202,18 @@ async fn vp_auth(
     let PartialJob::Partial { cardano_addr } = job else {
         unreachable!();
     };
-    guard.queue.push_back(Job {
-        cardano_addr,
-        vp_token,
-        id,
-    });
+    state
+        .queue
+        .send(Job {
+            cardano_addr,
+            vp_token,
+            id,
+        })
+        .unwrap();
 
     dbg!(&state);
 
     Ok(())
-}
-
-#[derive(Debug, Serialize)]
-struct GetQueuePosResponse {
-    pos: u64,
-}
-
-async fn get_queue_pos(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<u64>,
-) -> Result<Json<GetQueuePosResponse>, StatusCode> {
-    let guard = state.mu.lock().await;
-    let job = guard.lookup.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
-    match job {
-        PartialJob::Partial { .. } => Err(StatusCode::ACCEPTED),
-        PartialJob::Queued(pos) => Ok(Json(GetQueuePosResponse { pos: *pos })),
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -241,8 +227,35 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
     // PERFORMANCE: Probably should find a way to make this not need locking
     let guard = state.mu.lock().await;
     Json(StatusResponse {
-        queue_head: guard.queue_head.load(Ordering::Relaxed),
-        queue_len: guard.queue.len(),
+        queue_head: state.queue_head.load(Ordering::Relaxed),
+        queue_len: state.queue.len(),
         avg_processing_time: 10,
     })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase", tag = "status")]
+enum JobStatusResponse {
+    WaitingForVP,
+    Queued { pos: u64, len: u64 },
+    Completed,
+}
+
+async fn job_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<u64>,
+) -> Result<Json<JobStatusResponse>, StatusCode> {
+    let guard = state.mu.lock().await;
+    let job = guard.lookup.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
+    let head = state.queue_head.load(Ordering::Relaxed);
+    Ok(Json(match job {
+        PartialJob::Partial { .. } => JobStatusResponse::WaitingForVP,
+        PartialJob::Queued(pos) => JobStatusResponse::Queued {
+            // These may be slightly off due to a small race condition. Shouldn't matter though, as
+            // this is only used for reporting progress in the UI.
+            pos: pos - head,
+            len: state.queue.len() as u64,
+        },
+        PartialJob::Completed => JobStatusResponse::Completed,
+    }))
 }

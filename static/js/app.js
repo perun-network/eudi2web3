@@ -238,7 +238,7 @@ function applyQueueUpdate(status, data = {}) {
     return;
   }
 
-  if (status === "complete") {
+  if (status === "complete" || status === "completed") {
     setVisible(queueStatusDiv, false);
     setVisible(proofResultDiv, true);
     scrollIntoViewSoon(proofResultDiv);
@@ -263,13 +263,11 @@ function startProofPolling(requestId) {
   stopProofPolling();
   activePollRequestId = requestId;
 
-  const statusUrl = "/api/status";
-  const posUrl = `/api/get_queue_pos/${requestId}`;
+  const statusUrl = `/api/status/${requestId}`;
 
-  let jobPos = null;
   let jobStatus = null;
   let startTime = null;
-  let avgProcessingTime = null;
+  const avgProcessingTime = DEFAULT_AVG_PROCESSING_SEC;
 
   const showStep3 = () => {
     setVisible(outputDiv, false);
@@ -279,7 +277,7 @@ function startProofPolling(requestId) {
   };
 
   const updateProgress = () => {
-    if (!startTime || !avgProcessingTime || jobStatus === "complete" || jobStatus === "error") {
+    if (!startTime || jobStatus === "completed" || jobStatus === "error") {
       return;
     }
 
@@ -294,64 +292,47 @@ function startProofPolling(requestId) {
     }
   };
 
-  const pollPos = async () => {
+  const pollStatus = async () => {
     try {
-      const posRes = await fetch(posUrl);
-      if (posRes.status === 202) {
-        return true;
+      const res = await fetch(statusUrl);
+      if (!res.ok || activePollRequestId !== requestId) return;
+
+      const data = await res.json();
+      if (activePollRequestId !== requestId) return;
+
+      const { status, pos, len } = data;
+
+      if (status === "waitingforvp") {
+        setQueueState("queued", "Waiting for credential...");
+        queuePosEl.textContent = "-";
+        queueTotalEl.textContent = "-";
+        queueEtaEl.textContent = "";
+        setQueueProgress(0);
+        jobStatus = null;
+        startTime = null;
+        return;
       }
-      if (!posRes.ok || activePollRequestId !== requestId) return;
-
-      const data = await posRes.json();
-      if (activePollRequestId !== requestId) return;
-
-      jobPos = data.pos;
-
-      return false;
-    } catch (err) {
-      console.error("Polling error:", err);
-      return true;
-    }
-  };
-
-  const pollQueue = async () => {
-    try {
-      const queueRes = await fetch(statusUrl);
-      if (!queueRes.ok || activePollRequestId !== requestId) return;
-
-      const { queue_head: head, queue_len: len, avg_processing_time } = await queueRes.json();
-      if (activePollRequestId !== requestId) return;
-
-      avgProcessingTime = avg_processing_time || DEFAULT_AVG_PROCESSING_SEC;
 
       showStep3();
 
-      const isProcessing = jobPos != null && head > jobPos;
-      const newStatus = isProcessing ? "processing" : "queued";
-
+      const newStatus = status;
       if (jobStatus !== newStatus) {
         jobStatus = newStatus;
         startTime = Date.now();
       }
 
-      let queuePos;
       let etaSeconds = null;
-      if (isProcessing) {
-        queuePos = "-";
-      } else {
-        queuePos = Math.max(0, jobPos - head) + 1;
-        if (avgProcessingTime) {
-          etaSeconds = queuePos * avgProcessingTime;
-        }
+      if (newStatus === "queued" && pos != null && avgProcessingTime) {
+        etaSeconds = pos * avgProcessingTime;
       }
 
-      applyQueueUpdate(jobStatus, {
-        queue_pos: queuePos,
+      applyQueueUpdate(newStatus, {
+        queue_pos: pos != null ? String(pos) : "-",
         queue_len: len,
         eta_seconds: etaSeconds,
       });
 
-      if (jobStatus === "complete" || jobStatus === "error") {
+      if (jobStatus === "completed" || jobStatus === "error") {
         stopProofPolling();
       }
     } catch (err) {
@@ -361,15 +342,7 @@ function startProofPolling(requestId) {
 
   pollTimer = setInterval(async () => {
     updateProgress();
-
-    if (jobStatus === null) {
-      const continuePollingPos = await pollPos();
-      if (!continuePollingPos) {
-        await pollQueue();
-      }
-    } else {
-      await pollQueue();
-    }
+    await pollStatus();
   }, POLL_INTERVAL_MS);
 }
 

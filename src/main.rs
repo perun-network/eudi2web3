@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    num::NonZeroUsize,
     ops::{Deref, DerefMut},
     sync::{Arc, atomic::AtomicU64},
     time::Instant,
@@ -7,6 +8,7 @@ use std::{
 
 use axum::Router;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
+use crossbeam::channel::{Receiver, Sender};
 use num_bigint::BigInt;
 use prover::MultiuseProver;
 use serde_json::json;
@@ -133,17 +135,17 @@ fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
 }
 */
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct AppState {
     /// Incomplete jobs (e.g. still waiting on credential VP)
     pub mu: tokio::sync::Mutex<Inner>,
+    pub queue: crossbeam::channel::Sender<Job>,
+    pub queue_head: AtomicU64,
 }
 
 #[derive(Debug, Default)]
 struct Inner {
     pub lookup: HashMapAutokey<PartialJob>,
-    pub queue: VecDeque<Job>,
-    pub queue_head: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -172,7 +174,11 @@ impl<T> HashMapAutokey<T> {
 #[derive(Debug)]
 enum PartialJob {
     Partial { cardano_addr: String },
+    // This is not 100% accurate, multiple jobs can end up with the same queue position in here,
+    // but that shouldn't matter since it is primarily used for indicating progress in the
+    // frontend.
     Queued(u64),
+    Completed,
 }
 #[derive(Debug)]
 struct Job {
@@ -185,9 +191,17 @@ struct Job {
 async fn main() {
     let bind = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
 
-    let state = Arc::new(AppState::default());
-    let app = routes::build_router().with_state(state);
+    let job_queue = crossbeam::channel::unbounded();
+    let state = Arc::new(AppState {
+        mu: Default::default(),
+        queue: job_queue.0,
+        queue_head: 0.into(),
+    });
 
+    let workers = std::thread::available_parallelism().unwrap_or(NonZeroUsize::new(2).unwrap());
+    start_workers(workers, job_queue.1, state.clone());
+
+    let app = routes::build_router().with_state(state);
     if bind.starts_with('/') {
         let listener = UnixListener::bind(bind).unwrap();
         axum::serve(listener, app).await.unwrap();
@@ -195,6 +209,25 @@ async fn main() {
         let listener = TcpListener::bind(bind).await.unwrap();
         axum::serve(listener, app).await.unwrap();
     };
+}
+
+fn start_workers(workers: NonZeroUsize, input: Receiver<Job>, state: Arc<AppState>) {
+    for _ in 0..workers.into() {
+        let input = input.clone();
+        let state = state.clone();
+        std::thread::spawn(move || {
+            while let Ok(job) = input.recv() {
+                // We took something out of the queue
+                dbg!(&job);
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                dbg!("completed");
+                match state.mu.blocking_lock().lookup.data.get_mut(&job.id) {
+                    Some(j) => *j = PartialJob::Completed,
+                    None => println!("WARN: Job got removed during processing"),
+                }
+            }
+        });
+    }
 }
 
 fn main1() {
