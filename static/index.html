@@ -5,9 +5,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EUDI4Cardano - Credential Verification</title>
-  <meta name="description" content="Bridge your European Digital Identity wallet with Cardano. Generate privacy-preserving zero-knowledge proofs of your EUDI credentials for on-chain use.">
+  <meta name="description"
+    content="Bridge your European Digital Identity wallet with Cardano. Generate privacy-preserving zero-knowledge proofs of your EUDI credentials for on-chain use.">
   <meta property="og:title" content="EUDI4Cardano - Credential Verification">
-  <meta property="og:description" content="Bridge your European Digital Identity wallet with Cardano. Generate privacy-preserving zero-knowledge proofs of your EUDI credentials for on-chain use.">
+  <meta property="og:description"
+    content="Bridge your European Digital Identity wallet with Cardano. Generate privacy-preserving zero-knowledge proofs of your EUDI credentials for on-chain use.">
   <meta property="og:image" content="assets/logo.png">
   <meta property="og:type" content="website">
   <link rel="icon" href="assets/favicon.png" type="image/png">
@@ -21,7 +23,9 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
 
   <link href="css/style.css" rel="stylesheet">
   <script src="/qrcode.js"></script>
@@ -36,11 +40,13 @@
       </a>
       <div class="site-header-actions">
         <nav class="site-nav" aria-label="Main navigation">
-          <a href="https://projectcatalyst.io/funds/14/cardano-use-cases-concepts/eudi4cardano-interoperability-of-eudi-wallets-with-cardano" target="_blank" rel="noopener noreferrer">Catalyst</a>
+          <a href="https://projectcatalyst.io/funds/14/cardano-use-cases-concepts/eudi4cardano-interoperability-of-eudi-wallets-with-cardano"
+            target="_blank" rel="noopener noreferrer">Catalyst</a>
           <a href="https://github.com/perun-network/eudi2web3" target="_blank" rel="noopener noreferrer">GitHub</a>
           <a href="#" target="_blank" rel="noopener noreferrer">Docs</a>
         </nav>
-        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch color theme" aria-pressed="false">
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch color theme"
+          aria-pressed="false">
           <span class="theme-toggle-label" id="theme-toggle-label">Light mode</span>
         </button>
       </div>
@@ -76,20 +82,11 @@
             and create a zero-knowledge proof that can be published on-chain.
           </p>
 
-          <form method="post" action="/api/request" id="submit_request_form" novalidate>
+          <form method="post" action="/api/submit_data" id="submit_request_form" novalidate>
             <div class="form-group">
               <label for="addr" class="form-label">Cardano Address</label>
-              <input
-                type="text"
-                name="addr"
-                id="addr"
-                required
-                aria-describedby="addr-error"
-                placeholder="addr1..."
-                class="form-input mono"
-                autocomplete="off"
-                spellcheck="false"
-              >
+              <input type="text" name="addr" id="addr" required aria-describedby="addr-error" placeholder="addr1..."
+                class="form-input mono" autocomplete="off" spellcheck="false">
               <p id="addr-error" class="form-error" style="display: none;" role="alert"></p>
             </div>
             <button type="submit" class="btn btn-primary" id="submit-btn">
@@ -143,7 +140,8 @@
                 <span class="queue-eta" id="queue-eta"></span>
               </div>
             </div>
-            <div class="queue-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="queue-progress-track">
+            <div class="queue-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+              id="queue-progress-track">
               <div class="queue-progress-fill" id="queue-progress-fill"></div>
             </div>
             <p id="queue-error" class="queue-error" style="display: none;" role="alert"></p>
@@ -153,7 +151,8 @@
             <div class="proof-result-header">
               <span class="proof-ready-badge">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+                    stroke-linejoin="round" />
                 </svg>
                 Proof ready
               </span>
@@ -162,10 +161,12 @@
             <pre class="proof-json-block" id="proof-json-block"><code id="proof-json-code"></code></pre>
 
             <div class="tx-actions">
-              <a href="#" id="tx-explorer-link" class="btn btn-outline" target="_blank" rel="noopener noreferrer" style="display: none;">
+              <a href="#" id="tx-explorer-link" class="btn btn-outline" target="_blank" rel="noopener noreferrer"
+                style="display: none;">
                 View on Cardanoscan
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true" style="margin-left:2px">
-                  <path d="M2 9L9 2M9 2H4M9 2v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M2 9L9 2M9 2H4M9 2v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                    stroke-linejoin="round" />
                 </svg>
               </a>
               <button class="btn btn-primary" id="submit-tx-btn" style="display: none;">
@@ -187,7 +188,8 @@
       </div>
       <p class="footer-tagline">Interoperability of EUDI Wallets with Cardano</p>
       <nav class="footer-links" aria-label="Footer links">
-        <a href="https://projectcatalyst.io/funds/14/cardano-use-cases-concepts/eudi4cardano-interoperability-of-eudi-wallets-with-cardano" target="_blank" rel="noopener noreferrer">Project Catalyst</a>
+        <a href="https://projectcatalyst.io/funds/14/cardano-use-cases-concepts/eudi4cardano-interoperability-of-eudi-wallets-with-cardano"
+          target="_blank" rel="noopener noreferrer">Project Catalyst</a>
         <span class="footer-divider" aria-hidden="true">·</span>
         <a href="https://github.com/perun-network/eudi2web3" target="_blank" rel="noopener noreferrer">GitHub</a>
         <span class="footer-divider" aria-hidden="true">·</span>
