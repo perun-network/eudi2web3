@@ -270,6 +270,8 @@ function startProofPolling(requestId) {
   let avgProcessingTime = null;
 
   const showStep3 = () => {
+    setVisible(outputDiv, false);
+    setVisible(document.getElementById("step1-card"), false);
     setVisible(step3Div, true);
     scrollIntoViewSoon(step3Div, "nearest", 400);
   };
