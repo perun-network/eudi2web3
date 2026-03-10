@@ -209,9 +209,8 @@ function showQueueError(message) {
   setVisible(queueErrorEl, true);
 }
 
-function applyQueueUpdate(data) {
-  const { status, queue_pos, queue_len, eta_seconds, proof, tx_hash, tx_cbor } =
-    data;
+function applyQueueUpdate(status, data = {}) {
+  const { queue_pos, queue_len, proof, tx_hash, tx_cbor } = data;
 
   if (status === "queued") {
     setVisible(queueStatusDiv, true);
@@ -221,22 +220,18 @@ function applyQueueUpdate(data) {
     if (queue_pos != null) queuePosEl.textContent = queue_pos;
     if (queue_len != null) queueTotalEl.textContent = queue_len;
 
-    if (queue_pos != null && queue_len != null && queue_len > 0) {
+    if (queue_len != null && queue_len > 0 && queue_pos != null) {
       const pct = Math.max(
         4,
         Math.min(96, ((queue_len - queue_pos) / queue_len) * 100),
       );
       setQueueProgress(pct);
+    } else {
+      setQueueProgress(0);
     }
 
-    queueEtaEl.textContent =
-      eta_seconds != null
-        ? eta_seconds >= 60
-          ? `~${Math.ceil(eta_seconds / 60)} min remaining`
-          : `~${eta_seconds}s remaining`
-        : "";
-
-    setQueueState(status, status === "processing" ? "Processing" : "Queued");
+    queueEtaEl.textContent = "";
+    setQueueState("queued", "Queued");
     return;
   }
 
@@ -265,25 +260,65 @@ function startProofPolling(requestId) {
   stopProofPolling();
   activePollRequestId = requestId;
 
-  const statusUrl = `/api/status/${requestId}`;
+  const statusUrl = "/api/status";
+  const posUrl = `/api/get_queue_pos/${requestId}`;
 
-  setVisible(step3Div, true);
-  scrollIntoViewSoon(step3Div, "nearest", 400);
+  let jobPos = null;
+  let jobStatus = null;
 
-  pollTimer = setInterval(async () => {
+  const showStep3 = () => {
+    setVisible(step3Div, true);
+    scrollIntoViewSoon(step3Div, "nearest", 400);
+  };
+
+  const pollPos = async () => {
     try {
-      const res = await fetch(statusUrl);
-      if (!res.ok || activePollRequestId !== requestId) return;
+      const posRes = await fetch(posUrl);
+      if (posRes.status === 202) {
+        return true;
+      }
+      if (!posRes.ok || activePollRequestId !== requestId) return;
 
-      const data = await res.json();
+      const data = await posRes.json();
       if (activePollRequestId !== requestId) return;
 
-      applyQueueUpdate(data);
-      if (data.status === "complete" || data.status === "error") {
-        stopProofPolling();
-      }
+      jobPos = data.pos;
+
+      return false;
     } catch (err) {
       console.error("Polling error:", err);
+      return true;
+    }
+  };
+
+  const pollQueue = async () => {
+    try {
+      const queueRes = await fetch(statusUrl);
+      if (!queueRes.ok || activePollRequestId !== requestId) return;
+
+      const { queue_head: head, queue_len: len } = await queueRes.json();
+      if (activePollRequestId !== requestId) return;
+
+      jobStatus = "queued";
+      showStep3();
+      const queuePos = Math.max(0, jobPos - head) + 1;
+      applyQueueUpdate(jobStatus, {
+        queue_pos: queuePos,
+        queue_len: len,
+      });
+    } catch (err) {
+      console.error("Polling error:", err);
+    }
+  };
+
+  pollTimer = setInterval(async () => {
+    if (jobStatus === null) {
+      const continuePollingPos = await pollPos();
+      if (!continuePollingPos) {
+        await pollQueue();
+      }
+    } else {
+      await pollQueue();
     }
   }, 3000);
 }

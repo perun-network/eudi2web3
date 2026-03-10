@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Digest as _;
 
-use crate::{AppState, PartialJob};
+use crate::{AppState, Job, PartialJob};
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
 const REQUEST_CERT: &str = "/var/www/eudi2web3/fubar_cert.pem";
@@ -24,8 +24,8 @@ pub fn build_router() -> Router<Arc<AppState>> {
         .route("/submit_data", post(submit_data))
         .route("/vp_request/{id}", post(vp_request))
         .route("/vp_auth/{id}", post(vp_auth))
-        .route("/status", get(status))
         .route("/get_queue_pos/{id}", get(get_queue_pos))
+        .route("/status", get(status))
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,7 +53,7 @@ async fn submit_data(
     let x509_hash = sha2::Sha256::digest(certs[0].contents());
     let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(&x509_hash);
 
-    let id = state.partial.lock().await.push(PartialJob::Partial {
+    let id = state.mu.lock().await.lookup.push(PartialJob::Partial {
         cardano_addr: data.addr,
     });
 
@@ -171,56 +171,76 @@ async fn vp_auth(
     State(state): State<Arc<AppState>>,
     Path(id): Path<u64>,
     Form(data): Form<AuthData>,
-) -> StatusCode {
+) -> Result<(), StatusCode> {
     dbg!("auth");
 
-    let mut guard = state.partial.lock().await;
-    let job = guard.data.get_mut(&id);
-    dbg!(id, &data, &job);
+    // Check if we got valid data
+    let mut vp_token: VpToken = serde_json::from_str(&data.vp_token).map_err(|_| {
+        println!("Wallet response is unexpected json: {}", data.vp_token);
+        StatusCode::BAD_REQUEST
+    })?;
+    let vp_token = vp_token.q0.pop().ok_or_else(|| {
+        println!("Wallet response contains no token: {}", data.vp_token);
+        StatusCode::BAD_REQUEST
+    })?;
 
-    if let Some(job) = job {
-        *job = PartialJob::Queued(42)
-    }
+    // TODO: Extend checking by verifying the credential itself
 
-    let data: VpToken = serde_json::from_str(&data.vp_token).unwrap();
-    dbg!(&data.q0);
+    // Move the job to the queue and mark it as moved.
+    let mut guard = state.mu.lock().await;
+    let pos = guard.queue_head.load(Ordering::Relaxed) + guard.queue.len() as u64;
+    let old = guard
+        .lookup
+        .data
+        .get_mut(&id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let PartialJob::Partial { .. } = old else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    let mut job = PartialJob::Queued(pos);
+    std::mem::swap(old, &mut job);
+    let PartialJob::Partial { cardano_addr } = job else {
+        unreachable!();
+    };
+    guard.queue.push_back(Job {
+        cardano_addr,
+        vp_token,
+        id,
+    });
 
-    StatusCode::OK
+    dbg!(&state);
+
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
 struct GetQueuePosResponse {
     pos: u64,
-    status: &'static str,
 }
 
 async fn get_queue_pos(
     State(state): State<Arc<AppState>>,
     Path(id): Path<u64>,
 ) -> Result<Json<GetQueuePosResponse>, StatusCode> {
-    let guard = state.partial.lock().await;
-    let job = guard.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
-    Ok(Json(match job {
-        PartialJob::Partial { .. } => GetQueuePosResponse {
-            pos: 0,
-            status: "waiting_for_vp",
-        },
-        PartialJob::Queued(pos) => GetQueuePosResponse {
-            pos: *pos,
-            status: "queued",
-        },
-    }))
+    let guard = state.mu.lock().await;
+    let job = guard.lookup.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
+    match job {
+        PartialJob::Partial { .. } => Err(StatusCode::ACCEPTED),
+        PartialJob::Queued(pos) => Ok(Json(GetQueuePosResponse { pos: *pos })),
+    }
 }
 
 #[derive(Debug, Serialize)]
 struct StatusResponse {
-    head: u64,
-    len: usize,
+    queue_head: u64,
+    queue_len: usize,
 }
 
 async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
+    // PERFORMANCE: Probably should find a way to make this not need locking
+    let guard = state.mu.lock().await;
     Json(StatusResponse {
-        head: state.queue_head.load(Ordering::Relaxed),
-        len: state.queue.lock().await.len(),
+        queue_head: guard.queue_head.load(Ordering::Relaxed),
+        queue_len: guard.queue.len(),
     })
 }

@@ -136,8 +136,13 @@ fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
 #[derive(Debug, Default)]
 struct AppState {
     /// Incomplete jobs (e.g. still waiting on credential VP)
-    pub partial: tokio::sync::Mutex<HashMapAutokey<PartialJob>>,
-    pub queue: tokio::sync::Mutex<VecDeque<Job>>,
+    pub mu: tokio::sync::Mutex<Inner>,
+}
+
+#[derive(Debug, Default)]
+struct Inner {
+    pub lookup: HashMapAutokey<PartialJob>,
+    pub queue: VecDeque<Job>,
     pub queue_head: AtomicU64,
 }
 
