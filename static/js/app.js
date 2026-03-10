@@ -1,6 +1,7 @@
 const form = document.getElementById("submit_request_form");
 const addrInput = document.getElementById("addr");
 const addrError = document.getElementById("addr-error");
+const step1Card = document.getElementById("step1-card");
 const outputDiv = document.getElementById("output");
 const openidLink = document.getElementById("openid_link");
 const qrDiv = document.getElementById("qr");
@@ -24,6 +25,13 @@ const submitTxBtn = document.getElementById("submit-tx-btn");
 const themeToggle = document.getElementById("theme-toggle");
 const themeToggleLabel = document.getElementById("theme-toggle-label");
 
+const POLL_INTERVAL_MS = 3000;
+const DEFAULT_AVG_PROCESSING_SEC = 10;
+const MAX_PROGRESS_PCT = 95;
+const PROCESSING_TIME_FUDGE = 2;
+const SCROLL_DELAY_MS = 400;
+const COPY_FEEDBACK_MS = 2000;
+
 let pollTimer = null;
 let activePollRequestId = null;
 
@@ -36,14 +44,8 @@ function setButtonLoading(button, isLoading) {
   button.disabled = isLoading;
 }
 
-function scrollIntoViewSoon(element, block = "nearest", delay = 0) {
-  const run = () => element.scrollIntoView({ behavior: "smooth", block });
-  if (delay > 0) {
-    setTimeout(run, delay);
-    return;
-  }
-
-  run();
+function scrollIntoViewSoon(element, block = "nearest") {
+  setTimeout(() => element.scrollIntoView({ behavior: "smooth", block }), SCROLL_DELAY_MS);
 }
 
 function setQueueState(state, label) {
@@ -90,7 +92,7 @@ function renderQrCode(url) {
         colorLight: "#FFFFFF",
         correctLevel,
       });
-      return true;
+      return;
     } catch (error) {
       qrDiv.innerHTML = "";
       if (
@@ -107,7 +109,6 @@ function renderQrCode(url) {
       QR code unavailable for this request size. Use the wallet link below.
     </p>
   `;
-  return false;
 }
 
 function getRequestFailureMessage(error) {
@@ -180,6 +181,7 @@ function updateTxLink(txHash) {
 function resetStepState() {
   stopProofPolling();
 
+  setVisible(step1Card, true);
   setVisible(outputDiv, false);
   openidLink.href = "";
   qrDiv.innerHTML = "";
@@ -271,9 +273,9 @@ function startProofPolling(requestId) {
 
   const showStep3 = () => {
     setVisible(outputDiv, false);
-    setVisible(document.getElementById("step1-card"), false);
+    setVisible(step1Card, false);
     setVisible(step3Div, true);
-    scrollIntoViewSoon(step3Div, "nearest", 400);
+    scrollIntoViewSoon(step3Div);
   };
 
   const updateProgress = () => {
@@ -282,10 +284,10 @@ function startProofPolling(requestId) {
     }
 
     const elapsed = (Date.now() - startTime) / 1000;
-    const expectedTime = avgProcessingTime * 2;
+    const expectedTime = avgProcessingTime * PROCESSING_TIME_FUDGE;
 
     if (jobStatus === "processing") {
-      const pct = Math.min(95, (elapsed / expectedTime) * 100);
+      const pct = Math.min(MAX_PROGRESS_PCT, (elapsed / expectedTime) * 100);
       setQueueProgress(pct);
     } else if (jobStatus === "queued") {
       setQueueProgress(0);
@@ -320,11 +322,11 @@ function startProofPolling(requestId) {
       const { queue_head: head, queue_len: len, avg_processing_time } = await queueRes.json();
       if (activePollRequestId !== requestId) return;
 
-      avgProcessingTime = avg_processing_time || 10;
+      avgProcessingTime = avg_processing_time || DEFAULT_AVG_PROCESSING_SEC;
 
       showStep3();
 
-      const isProcessing = jobPos !== undefined && jobPos !== null && head > jobPos;
+      const isProcessing = jobPos != null && head > jobPos;
       const newStatus = isProcessing ? "processing" : "queued";
 
       if (jobStatus !== newStatus) {
@@ -368,7 +370,7 @@ function startProofPolling(requestId) {
     } else {
       await pollQueue();
     }
-  }, 3000);
+  }, POLL_INTERVAL_MS);
 }
 
 function initializeThemeToggle() {
@@ -453,7 +455,7 @@ function initializeCopyProof() {
         copyProofBtn.textContent = "Copied!";
         setTimeout(() => {
           copyProofBtn.textContent = "Copy JSON";
-        }, 2000);
+        }, COPY_FEEDBACK_MS);
       })
       .catch((err) => {
         console.error("Clipboard write failed:", err);

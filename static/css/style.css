@@ -17,6 +17,7 @@
   --color-indigo-signal: #4E4BCF;
   --color-teal-link:     #20C6C7;
   --color-eu-gold:       #C7A64A;
+  --color-error:         #c94b63;
 
   /* Neutral palette */
   --color-graphite-900: #0F1726;
@@ -475,7 +476,7 @@ main {
 .form-error {
   margin-top: var(--space-2);
   font-size: 0.8125rem;
-  color: #c94b63;
+  color: var(--color-error);
 }
 
 /* ============================================
@@ -528,11 +529,7 @@ main {
   cursor: not-allowed;
 }
 
-.btn:focus-visible,
-.btn-copy-proof:focus-visible,
-.form-input:focus-visible,
-.site-nav a:focus-visible,
-.footer-links a:focus-visible {
+:is(.btn, .btn-copy-proof, .form-input, .site-nav a, .footer-links a):focus-visible {
   outline: 2px solid var(--accent-secondary);
   outline-offset: 3px;
 }
@@ -770,12 +767,7 @@ main {
 }
 
 /* State variants */
-.queue-state-badge[data-state="queued"] {
-  color: var(--color-verification-cyan);
-  background: rgba(53, 182, 232, 0.07);
-  border-color: rgba(53, 182, 232, 0.2);
-}
-
+.queue-state-badge[data-state="queued"],
 .queue-state-badge[data-state="waiting"] {
   color: var(--color-verification-cyan);
   background: rgba(53, 182, 232, 0.07);
@@ -795,7 +787,7 @@ main {
 }
 
 .queue-state-badge[data-state="error"] {
-  color: #c94b63;
+  color: var(--color-error);
   background: rgba(201, 75, 99, 0.1);
   border-color: rgba(201, 75, 99, 0.28);
 }
@@ -808,10 +800,7 @@ main {
   flex-shrink: 0;
 }
 
-.queue-state-badge[data-state="queued"] .queue-state-dot {
-  animation: badge-pulse 2.4s ease infinite;
-}
-
+.queue-state-badge[data-state="queued"] .queue-state-dot,
 .queue-state-badge[data-state="waiting"] .queue-state-dot {
   animation: badge-pulse 2.4s ease infinite;
 }
@@ -830,7 +819,7 @@ main {
 .queue-error {
   margin-top: var(--space-4);
   font-size: 0.875rem;
-  color: #c94b63;
+  color: var(--color-error);
 }
 
 /* Progress track */
