@@ -234,6 +234,7 @@ async fn get_queue_pos(
 struct StatusResponse {
     queue_head: u64,
     queue_len: usize,
+    avg_processing_time: usize, // In Seconds
 }
 
 async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
@@ -242,5 +243,6 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
     Json(StatusResponse {
         queue_head: guard.queue_head.load(Ordering::Relaxed),
         queue_len: guard.queue.len(),
+        avg_processing_time: 10,
     })
 }

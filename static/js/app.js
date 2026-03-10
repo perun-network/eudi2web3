@@ -210,9 +210,9 @@ function showQueueError(message) {
 }
 
 function applyQueueUpdate(status, data = {}) {
-  const { queue_pos, queue_len, proof, tx_hash, tx_cbor } = data;
+  const { queue_pos, queue_len, eta_seconds, proof, tx_hash, tx_cbor } = data;
 
-  if (status === "queued") {
+  if (status === "queued" || status === "processing") {
     setVisible(queueStatusDiv, true);
     setVisible(proofResultDiv, false);
     clearQueueError();
@@ -220,7 +220,7 @@ function applyQueueUpdate(status, data = {}) {
     if (queue_pos != null) queuePosEl.textContent = queue_pos;
     if (queue_len != null) queueTotalEl.textContent = queue_len;
 
-    if (queue_len != null && queue_len > 0 && queue_pos != null) {
+    if (queue_len != null && queue_len > 0 && queue_pos != null && queue_pos !== "-") {
       const pct = Math.max(
         4,
         Math.min(96, ((queue_len - queue_pos) / queue_len) * 100),
@@ -230,8 +230,19 @@ function applyQueueUpdate(status, data = {}) {
       setQueueProgress(0);
     }
 
-    queueEtaEl.textContent = "";
-    setQueueState("queued", "Queued");
+    if (status === "processing") {
+      queueEtaEl.textContent = "Processing...";
+      setQueueState("processing", "Processing");
+    } else if (eta_seconds != null) {
+      queueEtaEl.textContent =
+        eta_seconds >= 60
+          ? `~${Math.ceil(eta_seconds / 60)} min remaining`
+          : `~${eta_seconds}s remaining`;
+      setQueueState("queued", "Queued");
+    } else {
+      queueEtaEl.textContent = "";
+      setQueueState("queued", "Queued");
+    }
     return;
   }
 
@@ -296,15 +307,29 @@ function startProofPolling(requestId) {
       const queueRes = await fetch(statusUrl);
       if (!queueRes.ok || activePollRequestId !== requestId) return;
 
-      const { queue_head: head, queue_len: len } = await queueRes.json();
+      const { queue_head: head, queue_len: len, avg_processing_time } = await queueRes.json();
       if (activePollRequestId !== requestId) return;
 
-      jobStatus = "queued";
       showStep3();
-      const queuePos = Math.max(0, jobPos - head) + 1;
-      applyQueueUpdate(jobStatus, {
+
+      const isProcessing = head >= jobPos;
+      const status = isProcessing ? "processing" : "queued";
+
+      let queuePos;
+      let etaSeconds = null;
+      if (isProcessing) {
+        queuePos = "-";
+      } else {
+        queuePos = Math.max(0, jobPos - head) + 1;
+        if (avg_processing_time) {
+          etaSeconds = (queuePos - 1) * avg_processing_time;
+        }
+      }
+
+      applyQueueUpdate(status, {
         queue_pos: queuePos,
         queue_len: len,
+        eta_seconds: etaSeconds,
       });
     } catch (err) {
       console.error("Polling error:", err);
