@@ -220,16 +220,6 @@ function applyQueueUpdate(status, data = {}) {
     if (queue_pos != null) queuePosEl.textContent = queue_pos;
     if (queue_len != null) queueTotalEl.textContent = queue_len;
 
-    if (queue_len != null && queue_len > 0 && queue_pos != null && queue_pos !== "-") {
-      const pct = Math.max(
-        4,
-        Math.min(96, ((queue_len - queue_pos) / queue_len) * 100),
-      );
-      setQueueProgress(pct);
-    } else {
-      setQueueProgress(0);
-    }
-
     if (status === "processing") {
       queueEtaEl.textContent = "Processing...";
       setQueueState("processing", "Processing");
@@ -276,10 +266,28 @@ function startProofPolling(requestId) {
 
   let jobPos = null;
   let jobStatus = null;
+  let startTime = null;
+  let avgProcessingTime = null;
 
   const showStep3 = () => {
     setVisible(step3Div, true);
     scrollIntoViewSoon(step3Div, "nearest", 400);
+  };
+
+  const updateProgress = () => {
+    if (!startTime || !avgProcessingTime || jobStatus === "complete" || jobStatus === "error") {
+      return;
+    }
+
+    const elapsed = (Date.now() - startTime) / 1000;
+    const expectedTime = avgProcessingTime * 2;
+
+    if (jobStatus === "processing") {
+      const pct = Math.min(95, (elapsed / expectedTime) * 100);
+      setQueueProgress(pct);
+    } else if (jobStatus === "queued") {
+      setQueueProgress(0);
+    }
   };
 
   const pollPos = async () => {
@@ -310,10 +318,17 @@ function startProofPolling(requestId) {
       const { queue_head: head, queue_len: len, avg_processing_time } = await queueRes.json();
       if (activePollRequestId !== requestId) return;
 
+      avgProcessingTime = avg_processing_time || 10;
+
       showStep3();
 
-      const isProcessing = head >= jobPos;
-      const status = isProcessing ? "processing" : "queued";
+      const isProcessing = jobPos !== undefined && jobPos !== null && head > jobPos;
+      const newStatus = isProcessing ? "processing" : "queued";
+
+      if (jobStatus !== newStatus) {
+        jobStatus = newStatus;
+        startTime = Date.now();
+      }
 
       let queuePos;
       let etaSeconds = null;
@@ -321,22 +336,28 @@ function startProofPolling(requestId) {
         queuePos = "-";
       } else {
         queuePos = Math.max(0, jobPos - head) + 1;
-        if (avg_processing_time) {
-          etaSeconds = (queuePos - 1) * avg_processing_time;
+        if (avgProcessingTime) {
+          etaSeconds = queuePos * avgProcessingTime;
         }
       }
 
-      applyQueueUpdate(status, {
+      applyQueueUpdate(jobStatus, {
         queue_pos: queuePos,
         queue_len: len,
         eta_seconds: etaSeconds,
       });
+
+      if (jobStatus === "complete" || jobStatus === "error") {
+        stopProofPolling();
+      }
     } catch (err) {
       console.error("Polling error:", err);
     }
   };
 
   pollTimer = setInterval(async () => {
+    updateProgress();
+
     if (jobStatus === null) {
       const continuePollingPos = await pollPos();
       if (!continuePollingPos) {
