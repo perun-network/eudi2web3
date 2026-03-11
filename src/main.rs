@@ -28,9 +28,10 @@ mod prover;
 mod routes;
 mod sdjwt;
 
-// Configuration of the circuit
-const MAX_PAYLOAD_BYTES: usize = 1024;
-const MAX_VALUE_BYTES: usize = 32;
+// Configuration of the circuit (must be the same as in the circom file)
+const MAX_PAYLOAD_BYTES: usize = 4096; // JWT header + '.' + body + sha256 padding
+const MAX_HEADER_SIZE: usize = 2048; // JWT header
+const MAX_VALUE_BYTES: usize = 64; // Output value
 
 #[derive(Debug)]
 struct CircuitInput {
@@ -55,7 +56,11 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> CircuitInput {
     let body_json = BASE64_URL_SAFE_NO_PAD.decode(body).unwrap();
     let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name").expect("invalid json");
     if pos.is_none() {
-        pos = keyfinder::find_key_jsonbytes(&body_json, "_sd").expect("invalid json");
+        // TODO: Circuit does not have proper support for selective disclosure, yet and treaing _sd
+        // is too large for the current MAX_VALUE_BYTES. For testing we use "iss" instead if
+        // "given_name" is not in the root.
+        // pos = keyfinder::find_key_jsonbytes(&body_json, "_sd").expect("invalid json");
+        pos = keyfinder::find_key_jsonbytes(&body_json, "iss").expect("invalid json");
     }
     let Some(pos) = pos else {
         // TODO: Handle this gracefully, the JWT does not have this claim.
@@ -65,7 +70,21 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> CircuitInput {
     // of a string.
     let payload_off = header.len() + 1 + (pos.key_start_quote - 1) / 3 * 4;
     let json_align = (pos.key_start_quote - 1) % 3;
-    // dbg!(&pos, payload_off, json_align);
+    dbg!(&pos, payload_off, json_align);
+
+    // Various checks whether the circuit can process this VP
+    if sha2padded_len(message.len()) > MAX_PAYLOAD_BYTES {
+        todo!();
+    }
+    if header.len() > MAX_HEADER_SIZE {
+        todo!();
+    }
+    if pos.value.len() > MAX_VALUE_BYTES {
+        todo!();
+    }
+
+    // Quick fix for testing with issued credentials (which are not minified)
+    let value = format!(" {}", pos.value);
 
     // Build the input
     // IMPORTANT: rust_witness fails silently if any input signal is missing, setting all
@@ -86,7 +105,7 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> CircuitInput {
             .into_iter()
             .flatten()
             .collect(),
-        value: zeropad_str(pos.value, MAX_VALUE_BYTES),
+        value: zeropad_str(&value, MAX_VALUE_BYTES),
     }
 }
 
@@ -198,8 +217,15 @@ async fn main() {
         queue_head: 0.into(),
     });
 
+    println!("Loading zkey ...");
+    let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
+    let t0 = Instant::now();
+    let prover = MultiuseProver::new(zkey_path).unwrap();
+    let prover = Box::leak(Box::new(prover));
+    print_execution_time("ZKey loading finished", t0);
+
     let workers = std::thread::available_parallelism().unwrap_or(NonZeroUsize::new(2).unwrap());
-    start_workers(workers, job_queue.1, state.clone());
+    start_workers(workers, prover, job_queue.1, state.clone());
 
     let app = routes::build_router().with_state(state);
     if bind.starts_with('/') {
@@ -211,7 +237,12 @@ async fn main() {
     };
 }
 
-fn start_workers(workers: NonZeroUsize, input: Receiver<Job>, state: Arc<AppState>) {
+fn start_workers(
+    workers: NonZeroUsize,
+    prover: &'static MultiuseProver,
+    input: Receiver<Job>,
+    state: Arc<AppState>,
+) {
     for _ in 0..workers.into() {
         let input = input.clone();
         let state = state.clone();
@@ -219,15 +250,52 @@ fn start_workers(workers: NonZeroUsize, input: Receiver<Job>, state: Arc<AppStat
             while let Ok(job) = input.recv() {
                 // We took something out of the queue
                 dbg!(&job);
-                std::thread::sleep(std::time::Duration::from_secs(30));
+                let id = job.id;
+                compute_proof(prover, job);
                 dbg!("completed");
-                match state.mu.blocking_lock().lookup.data.get_mut(&job.id) {
+                match state.mu.blocking_lock().lookup.data.get_mut(&id) {
                     Some(j) => *j = PartialJob::Completed,
                     None => println!("WARN: Job got removed during processing"),
                 }
             }
         });
     }
+}
+
+fn compute_proof(prover: &MultiuseProver, job: Job) {
+    // TODO: We need to use the correct issuer (e.g. allow multiple)
+    // We test with hard coded issuer public key. In the long run this likely gets more complex.
+    let issuer_pk = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
+    let issuer_pk = issuer_pk.contents();
+    let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
+    assert_eq!(issuer_pk[0], 0x04);
+    let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
+
+    // Build the input
+    let t0 = Instant::now();
+    let input = presentation2input(&job.vp_token, issuer_pk);
+    let input = [
+        ("in".to_owned(), input.input),
+        ("value".to_owned(), input.value),
+    ];
+    print_execution_time(&format!("[{}] Input preparation finished", job.id), t0);
+
+    println!("INFO: Generating witness ...");
+    let t0 = Instant::now();
+    let wit = witness::sdjwtes256sha2561claim_witness(input);
+    print_execution_time("Witness generation finished", t0);
+
+    println!("INFO: Generating proof ...");
+    let t0 = Instant::now();
+    let proof = prover.prove_noverify(wit).unwrap();
+    print_execution_time("Proof generation finished", t0);
+
+    println!("INFO: Verifying proof ...");
+    let t0 = Instant::now();
+    let valid = prover.verify(&proof).unwrap();
+    print_execution_time("Proof verification finished", t0);
+
+    dbg!(&proof, valid);
 }
 
 fn main1() {
@@ -354,13 +422,19 @@ fn bebytes2limbs(coord: &[u8]) -> Vec<BigInt> {
     limbs
 }
 
+fn sha2padded_len(len: usize) -> usize {
+    (len + 1 + 64).div_ceil(64) * 64
+}
+
 // Returns the bytes with sha256 padding to the next 512-bit block, then padded to
 // max_padded_len*8. Second return value is the Size in bits before that second padding, as that is
 // what we need to pass to the circuit.
 fn str2binary_sha2padding(s: &str, max_padded_len: usize) -> (Vec<BigInt>, usize) {
     // Sanity check, the sha256 dependency requires a multiple of 512 bits for the max size.
     assert!(max_padded_len % 64 == 0);
-    // Make sure the data actually fits
+    // Make sure the data actually fits. Both asserts should check the same thing (esp. since the 1
+    // bit always needs 8 bits of space).
+    assert!(sha2padded_len(s.len()) <= max_padded_len);
     assert!(s.len() * 8 + 1 + 64 <= max_padded_len * 8);
 
     let mut out = Vec::with_capacity(max_padded_len * 8);

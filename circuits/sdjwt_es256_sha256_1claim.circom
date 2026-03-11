@@ -65,11 +65,12 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
 
 template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // Including the '.' separator, before base64 decoding
-    var MAX_HEADER_SIZE = 256;
-    var MAX_BYTES = 48;
+    var MAX_HEADER_SIZE = 2048; // Sadly includes x5c (certificate chain)
+    var MAX_BYTES = 96;
     var MAX_KEY = 10;
-    var MAX_VALUE = 32;
-    var CHECK_SIG = true;
+    var MAX_VALUE = 64;
+
+    var CHECK_SIG = 1; // 0: false, 1:true
 
     input SDJWT(payload_bytes, num_sd, sdbytes, path_depth) in;
     signal input value[MAX_VALUE]; // 0-padded
@@ -77,13 +78,15 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // Canary to detect when rust_witness doesn't have all inputs. Can be removed.
     // signal output test <== 99;
 
-    var key[MAX_KEY] = [103, 105, 118, 101, 110, 95, 110, 97, 109, 101]; // "given_name"
-    var key_length = 10;
+    // var key[MAX_KEY] = [103, 105, 118, 101, 110, 95, 110, 97, 109, 101]; // "given_name"
+    // var key_length = 10;
+    var key[MAX_KEY] = [105, 115, 115, 0, 0, 0, 0, 0, 0, 0]; // "iss"
+    var key_length = 3;
 
     assert(MAX_BYTES % 3 == 0);
     var MAX_BASE64 = MAX_BYTES / 3 * 4;
 
-    if CHECK_SIG {
+    if (CHECK_SIG != 0) {
         // Compute hash of JWT header+body
         // TODO: I don't think this verifies if the padding is correct, which could be an attack vector.
         // For payload_bytes=1024:   524.563 constraints (approx.)
@@ -220,4 +223,6 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
 - There should be even more opportunities, given that we need the base64 encoded a binary for computing sha256.
 */
 
-component main {public [value]} = SDJWT_ES256_SHA256_1claim(1024, 3, 200, 2);
+// Configuration: MAX_PAYLOAD_BYTES, num_sd, sdbytes, path_depth
+component main {public [value]} = SDJWT_ES256_SHA256_1claim(4096, 3, 200, 2);
+
