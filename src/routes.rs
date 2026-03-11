@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Digest as _;
 
-use crate::{AppState, Job, PartialJob, UserError, prover::SnarkjsProof};
+use crate::{
+    AppState, Job, ParsedPubInput, PartialJob, UserError, prover::SnarkjsProof, pubinput2parsed,
+};
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
 const REQUEST_CERT: &str = "/var/www/eudi2web3/fubar_cert.pem";
@@ -244,6 +246,9 @@ enum JobStatusResponse {
     Success {
         proof: SnarkjsProof,
         pub_input: Vec<String>,
+        // Public input as parsed data (easier to read/understand).
+        // Not useful for proof verification, intended to be used only for display to the user.
+        parsed: ParsedPubInput,
     },
     Error(UserError),
 }
@@ -265,6 +270,7 @@ async fn job_status(
         },
         PartialJob::Completed(Ok(proof)) => JobStatusResponse::Success {
             proof: proof.into(),
+            parsed: pubinput2parsed(&proof.pub_input),
             pub_input: proof.to_snarkjs_pubinput(),
         },
         PartialJob::Completed(Err(e)) => JobStatusResponse::Error(*e),

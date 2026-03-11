@@ -9,7 +9,8 @@ use std::{
 use axum::Router;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
 use crossbeam::channel::{Receiver, Sender};
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint};
+use num_traits::cast::ToPrimitive;
 use prover::{MultiuseProver, ProofWithPubInput, SnarkjsProof};
 use serde::Serialize;
 use serde_json::json;
@@ -127,6 +128,25 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
             .collect(),
         value: zeropad_str(&value, MAX_VALUE_BYTES),
     })
+}
+
+#[derive(Debug, Serialize)]
+struct ParsedPubInput {
+    pub value: String,
+}
+
+// We could also take this from the input data instead of the witness (after proof gen). That would
+// be simpler. But this way we show it can be calculated from the public input (and how).
+fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
+    // 1 because it includes the "always 1" value
+    assert_eq!(pub_input.len(), 1 + MAX_VALUE_BYTES);
+
+    ParsedPubInput {
+        value: pub_input[1..1 + MAX_VALUE_BYTES]
+            .iter()
+            .map_while(|v| v.to_u32().and_then(char::from_u32))
+            .collect(),
+    }
 }
 
 /*

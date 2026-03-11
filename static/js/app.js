@@ -20,6 +20,12 @@ const queueStateText = document.getElementById("queue-state-text");
 const queueErrorEl = document.getElementById("queue-error");
 const proofJsonCode = document.getElementById("proof-json-code");
 const copyProofBtn = document.getElementById("copy-proof-btn");
+const parsedOutputSection = document.getElementById("parsed-output-section");
+const parsedOutputCode = document.getElementById("parsed-output-code");
+const copyParsedBtn = document.getElementById("copy-parsed-btn");
+const pubInputSection = document.getElementById("pub-input-section");
+const pubInputCode = document.getElementById("pub-input-code");
+const copyPubInputBtn = document.getElementById("copy-pub-input-btn");
 const txExplorerLink = document.getElementById("tx-explorer-link");
 const submitTxBtn = document.getElementById("submit-tx-btn");
 const themeToggle = document.getElementById("theme-toggle");
@@ -199,6 +205,12 @@ function resetStepState() {
 
   proofJsonCode.textContent = "";
   copyProofBtn.textContent = "Copy JSON";
+  parsedOutputCode.textContent = "";
+  copyParsedBtn.textContent = "Copy";
+  setVisible(parsedOutputSection, false);
+  pubInputCode.textContent = "";
+  copyPubInputBtn.textContent = "Copy JSON";
+  setVisible(pubInputSection, false);
   resetTxAction();
 }
 
@@ -212,7 +224,7 @@ function showQueueError(message) {
 }
 
 function applyQueueUpdate(status, data = {}) {
-  const { queue_pos, queue_len, eta_seconds, proof, tx_hash, tx_cbor } = data;
+  const { queue_pos, queue_len, eta_seconds, proof, pub_input, parsed, tx_hash, tx_cbor } = data;
 
   if (status === "queued" || status === "processing") {
     setVisible(queueStatusDiv, true);
@@ -238,12 +250,43 @@ function applyQueueUpdate(status, data = {}) {
     return;
   }
 
-  if (status === "complete" || status === "completed") {
+  if (status === "success") {
     setVisible(queueStatusDiv, false);
     setVisible(proofResultDiv, true);
     scrollIntoViewSoon(proofResultDiv);
     setQueueState("complete", "Complete");
+
+    // Display human-readable parsed output first (most important for users)
+    if (parsed) {
+      // Handle ParsedPubInput struct: {value: "actual content"}
+      let displayContent;
+      if (parsed.value !== undefined) {
+        // Extract the value field from ParsedPubInput struct
+        displayContent = parsed.value;
+      } else if (typeof parsed === 'string') {
+        // Fallback for simple string
+        displayContent = parsed;
+      } else {
+        // Fallback for other object types
+        displayContent = JSON.stringify(parsed, null, 2);
+      }
+      
+      parsedOutputCode.textContent = displayContent;
+      setVisible(parsedOutputSection, true);
+    } else {
+      setVisible(parsedOutputSection, false);
+    }
+
+    // Display technical proof data
     proofJsonCode.textContent = proof ? JSON.stringify(proof, null, 2) : "";
+
+    // Display raw public input (for developers/verification)
+    if (pub_input) {
+      pubInputCode.textContent = JSON.stringify(pub_input, null, 2);
+      setVisible(pubInputSection, true);
+    } else {
+      setVisible(pubInputSection, false);
+    }
 
     updateTxLink(tx_hash);
 
@@ -255,7 +298,18 @@ function applyQueueUpdate(status, data = {}) {
   }
 
   if (status === "error") {
-    showQueueError(data.message || data.error || "Proof generation failed.");
+    // Handle UserError which can be a string or object
+    let errorMessage = "Proof generation failed.";
+    if (typeof data === 'string') {
+      errorMessage = data;
+    } else if (data && data.message) {
+      errorMessage = data.message;
+    } else if (data && data.error) {
+      errorMessage = data.error;
+    } else if (data && typeof data === 'object') {
+      errorMessage = JSON.stringify(data);
+    }
+    showQueueError(errorMessage);
   }
 }
 
@@ -300,7 +354,7 @@ function startProofPolling(requestId) {
       const data = await res.json();
       if (activePollRequestId !== requestId) return;
 
-      const { status, pos, len } = data;
+      const { status } = data;
 
       if (status === "waitingforvp") {
         setQueueState("queued", "Waiting for credential...");
@@ -315,24 +369,43 @@ function startProofPolling(requestId) {
 
       showStep3();
 
-      const newStatus = status;
-      if (jobStatus !== newStatus) {
-        jobStatus = newStatus;
-        startTime = Date.now();
-      }
+      // Handle different status types based on new API structure
+      if (status === "queued") {
+        const { pos, len } = data;
+        const newStatus = "queued";
+        if (jobStatus !== newStatus) {
+          jobStatus = newStatus;
+          startTime = Date.now();
+        }
 
-      let etaSeconds = null;
-      if (newStatus === "queued" && pos != null && avgProcessingTime) {
-        etaSeconds = pos * avgProcessingTime;
-      }
+        let etaSeconds = null;
+        if (pos != null && avgProcessingTime) {
+          etaSeconds = pos * avgProcessingTime;
+        }
 
-      applyQueueUpdate(newStatus, {
-        queue_pos: pos != null ? String(pos) : "-",
-        queue_len: len,
-        eta_seconds: etaSeconds,
-      });
-
-      if (jobStatus === "completed" || jobStatus === "error") {
+        applyQueueUpdate(newStatus, {
+          queue_pos: pos != null ? String(pos) : "-",
+          queue_len: len,
+          eta_seconds: etaSeconds,
+        });
+      } else if (status === "success") {
+        const { proof, pub_input, parsed } = data;
+        jobStatus = "success";
+        
+        applyQueueUpdate("success", {
+          proof,
+          pub_input,
+          parsed,
+          // tx_hash and tx_cbor would be included if the API provides them
+        });
+        
+        stopProofPolling();
+      } else if (status === "error") {
+        jobStatus = "error";
+        
+        // The error data is directly in the response for UserError
+        applyQueueUpdate("error", data);
+        
         stopProofPolling();
       }
     } catch (err) {
@@ -439,6 +512,50 @@ function initializeCopyProof() {
   });
 }
 
+function initializeCopyParsed() {
+  copyParsedBtn.addEventListener("click", () => {
+    const parsedText = parsedOutputCode.textContent;
+    if (!parsedText) return;
+
+    navigator.clipboard
+      .writeText(parsedText)
+      .then(() => {
+        copyParsedBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyParsedBtn.textContent = "Copy";
+        }, COPY_FEEDBACK_MS);
+      })
+      .catch((err) => {
+        console.error("Clipboard write failed:", err);
+        alert(
+          "Copy failed. Your browser may block clipboard access in this context.",
+        );
+      });
+  });
+}
+
+function initializeCopyPubInput() {
+  copyPubInputBtn.addEventListener("click", () => {
+    const pubInputText = pubInputCode.textContent;
+    if (!pubInputText) return;
+
+    navigator.clipboard
+      .writeText(pubInputText)
+      .then(() => {
+        copyPubInputBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyPubInputBtn.textContent = "Copy JSON";
+        }, COPY_FEEDBACK_MS);
+      })
+      .catch((err) => {
+        console.error("Clipboard write failed:", err);
+        alert(
+          "Copy failed. Your browser may block clipboard access in this context.",
+        );
+      });
+  });
+}
+
 function initializeSubmitTx() {
   submitTxBtn.addEventListener("click", async () => {
     setButtonLoading(submitTxBtn, true);
@@ -471,4 +588,6 @@ initializeThemeToggle();
 initializeAddressValidation();
 initializeProofRequest();
 initializeCopyProof();
+initializeCopyParsed();
+initializeCopyPubInput();
 initializeSubmitTx();

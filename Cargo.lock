@@ -888,6 +888,7 @@ dependencies = [
  "ecdsa",
  "jsonwebtoken",
  "num-bigint",
+ "num-traits",
  "pem",
  "rand 0.8.5",
  "ring",

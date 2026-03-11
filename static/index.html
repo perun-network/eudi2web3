@@ -156,9 +156,29 @@
                 </svg>
                 Proof ready
               </span>
+            </div>
+
+            <div class="parsed-output-section" id="parsed-output-section" style="margin-bottom: 20px; display: none;">
+              <div class="parsed-output-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="margin: 0; font-size: 14px; font-weight: 600;">Extracted Value</h4>
+                <button class="btn-copy-proof" id="copy-parsed-btn" style="font-size: 12px; padding: 4px 8px;">Copy</button>
+              </div>
+              <pre class="proof-json-block" style="max-height: 150px; overflow-y: auto;"><code id="parsed-output-code"></code></pre>
+            </div>
+
+            <div class="proof-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h4 style="margin: 0; font-size: 14px; font-weight: 600;">Zero-Knowledge Proof</h4>
               <button class="btn-copy-proof" id="copy-proof-btn">Copy JSON</button>
             </div>
             <pre class="proof-json-block" id="proof-json-block"><code id="proof-json-code"></code></pre>
+
+            <div class="pub-input-section" id="pub-input-section" style="margin-top: 20px; display: none;">
+              <div class="pub-input-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="margin: 0; font-size: 14px; font-weight: 600;">Public Input</h4>
+                <button class="btn-copy-proof" id="copy-pub-input-btn" style="font-size: 12px; padding: 4px 8px;">Copy JSON</button>
+              </div>
+              <pre class="proof-json-block" style="max-height: 200px; overflow-y: auto;"><code id="pub-input-code"></code></pre>
+            </div>
 
             <div class="tx-actions">
               <a href="#" id="tx-explorer-link" class="btn btn-outline" target="_blank" rel="noopener noreferrer"
