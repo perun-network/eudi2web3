@@ -10,7 +10,8 @@ use axum::Router;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
 use crossbeam::channel::{Receiver, Sender};
 use num_bigint::BigInt;
-use prover::MultiuseProver;
+use prover::{MultiuseProver, ProofWithPubInput, SnarkjsProof};
+use serde::Serialize;
 use serde_json::json;
 use tokio::net::{TcpListener, UnixListener};
 
@@ -39,32 +40,51 @@ struct CircuitInput {
     value: Vec<BigInt>,
 }
 
-fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> CircuitInput {
+// Errors that should be shown to the user.
+#[derive(Debug, Serialize, Copy, Clone, PartialEq, Eq)]
+enum UserError {
+    JwtTooLarge,
+    HeaderTooLarge,
+    ValueTooLarge,
+    BadJwtFormat,
+    ClaimNotFound,
+    UnexpectedSigLen,
+    UnknownErrorInvalidProof,
+}
+
+fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<CircuitInput, UserError> {
     // Get the relevant data from the credential to pass to input
     let mut segments = presentation.split('~');
     let (message, sig) = segments
         .next()
-        .expect("At least one segment")
+        .ok_or(UserError::BadJwtFormat)?
         .rsplit_once('.')
-        .expect("header.body.sig");
+        .ok_or(UserError::BadJwtFormat)?;
 
-    let (header, body) = message.split_once('.').unwrap();
-    let sig = BASE64_URL_SAFE_NO_PAD.decode(sig).unwrap();
-    assert_eq!(sig.len(), 64);
+    let (header, body) = message.split_once('.').ok_or(UserError::BadJwtFormat)?;
+    let sig = BASE64_URL_SAFE_NO_PAD
+        .decode(sig)
+        .map_err(|_| UserError::BadJwtFormat)?;
+    if sig.len() != 64 {
+        return Err(UserError::UnexpectedSigLen);
+    }
 
     // Find the message offset for the key we are interested in.
-    let body_json = BASE64_URL_SAFE_NO_PAD.decode(body).unwrap();
-    let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name").expect("invalid json");
+    let body_json = BASE64_URL_SAFE_NO_PAD
+        .decode(body)
+        .map_err(|_| UserError::BadJwtFormat)?;
+    let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name")
+        .map_err(|_| UserError::BadJwtFormat)?;
     if pos.is_none() {
         // TODO: Circuit does not have proper support for selective disclosure, yet and treaing _sd
         // is too large for the current MAX_VALUE_BYTES. For testing we use "iss" instead if
         // "given_name" is not in the root.
         // pos = keyfinder::find_key_jsonbytes(&body_json, "_sd").expect("invalid json");
-        pos = keyfinder::find_key_jsonbytes(&body_json, "iss").expect("invalid json");
+        pos = keyfinder::find_key_jsonbytes(&body_json, "iss")
+            .map_err(|_| UserError::BadJwtFormat)?;
     }
     let Some(pos) = pos else {
-        // TODO: Handle this gracefully, the JWT does not have this claim.
-        panic!("Could not find the key 'given_name' or '_sd'");
+        return Err(UserError::ClaimNotFound);
     };
     // We need the character before the quote to make sure it isn't an escaped quote and thus part
     // of a string.
@@ -74,13 +94,13 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> CircuitInput {
 
     // Various checks whether the circuit can process this VP
     if sha2padded_len(message.len()) > MAX_PAYLOAD_BYTES {
-        todo!();
+        return Err(UserError::JwtTooLarge);
     }
     if header.len() > MAX_HEADER_SIZE {
-        todo!();
+        return Err(UserError::HeaderTooLarge);
     }
     if pos.value.len() > MAX_VALUE_BYTES {
-        todo!();
+        return Err(UserError::ValueTooLarge);
     }
 
     // Quick fix for testing with issued credentials (which are not minified)
@@ -100,13 +120,13 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> CircuitInput {
         payload_off.into(),
         json_align.into(),
     ];
-    CircuitInput {
+    Ok(CircuitInput {
         input: [pk_x, pk_y, sig_r, sig_s, payload, lengths]
             .into_iter()
             .flatten()
             .collect(),
         value: zeropad_str(&value, MAX_VALUE_BYTES),
-    }
+    })
 }
 
 /*
@@ -197,7 +217,7 @@ enum PartialJob {
     // but that shouldn't matter since it is primarily used for indicating progress in the
     // frontend.
     Queued(u64),
-    Completed,
+    Completed(Result<ProofWithPubInput, UserError>),
 }
 #[derive(Debug)]
 struct Job {
@@ -249,12 +269,11 @@ fn start_workers(
         std::thread::spawn(move || {
             while let Ok(job) = input.recv() {
                 // We took something out of the queue
-                dbg!(&job);
                 let id = job.id;
-                compute_proof(prover, job);
-                dbg!("completed");
+                let res = compute_proof(prover, job);
                 match state.mu.blocking_lock().lookup.data.get_mut(&id) {
-                    Some(j) => *j = PartialJob::Completed,
+                    Some(j @ PartialJob::Queued(_)) => *j = PartialJob::Completed(res),
+                    Some(_) => unreachable!(),
                     None => println!("WARN: Job got removed during processing"),
                 }
             }
@@ -262,7 +281,9 @@ fn start_workers(
     }
 }
 
-fn compute_proof(prover: &MultiuseProver, job: Job) {
+fn compute_proof(prover: &MultiuseProver, job: Job) -> Result<ProofWithPubInput, UserError> {
+    dbg!(&job);
+
     // TODO: We need to use the correct issuer (e.g. allow multiple)
     // We test with hard coded issuer public key. In the long run this likely gets more complex.
     let issuer_pk = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
@@ -273,7 +294,7 @@ fn compute_proof(prover: &MultiuseProver, job: Job) {
 
     // Build the input
     let t0 = Instant::now();
-    let input = presentation2input(&job.vp_token, issuer_pk);
+    let input = presentation2input(&job.vp_token, issuer_pk)?;
     let input = [
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
@@ -296,6 +317,15 @@ fn compute_proof(prover: &MultiuseProver, job: Job) {
     print_execution_time("Proof verification finished", t0);
 
     dbg!(&proof, valid);
+
+    if valid {
+        Ok(proof)
+    } else {
+        // Usually happens if there is an assert or constraint in the circuit that isn't detected
+        // in advance in the Rust code. We don't get this info earlier because error reporting of
+        // rust_witness isn't good (doesn't even exist without modifications).
+        Err(UserError::UnknownErrorInvalidProof)
+    }
 }
 
 fn main1() {
@@ -353,7 +383,7 @@ fn main1() {
 
     // Build the input
     let t0 = Instant::now();
-    let input = presentation2input(&presentation, issuer_pk);
+    let input = presentation2input(&presentation, issuer_pk).unwrap();
     let input = [
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),

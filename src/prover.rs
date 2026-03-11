@@ -217,82 +217,46 @@ impl Key {
     }
 }
 
-impl ProofWithPubInput {
-    #[allow(unused)]
-    pub fn to_snarkjs_proof(&self) -> Result<String> {
-        // let mut proof_json = std::collections::HashMap::new();
-        let proof = SnarkjsProof {
-            protocol: self.proof.protocol.clone(),
-            curve: self.proof.curve.clone(),
+impl<'a> From<&'a ProofWithPubInput> for SnarkjsProof {
+    fn from(value: &'a ProofWithPubInput) -> Self {
+        SnarkjsProof {
+            protocol: value.proof.protocol.clone(),
+            curve: value.proof.curve.clone(),
             pi_a: vec![
-                self.proof.a.x.to_string(),
-                self.proof.a.y.to_string(),
-                self.proof.a.z.to_string(),
+                value.proof.a.x.to_string(),
+                value.proof.a.y.to_string(),
+                value.proof.a.z.to_string(),
             ],
             pi_b: vec![
-                vec![self.proof.b.x[0].to_string(), self.proof.b.x[1].to_string()],
-                vec![self.proof.b.y[0].to_string(), self.proof.b.y[1].to_string()],
-                vec![self.proof.b.z[0].to_string(), self.proof.b.z[1].to_string()],
+                vec![
+                    value.proof.b.x[0].to_string(),
+                    value.proof.b.x[1].to_string(),
+                ],
+                vec![
+                    value.proof.b.y[0].to_string(),
+                    value.proof.b.y[1].to_string(),
+                ],
+                vec![
+                    value.proof.b.z[0].to_string(),
+                    value.proof.b.z[1].to_string(),
+                ],
             ],
             pi_c: vec![
-                self.proof.c.x.to_string(),
-                self.proof.c.y.to_string(),
-                self.proof.c.z.to_string(),
+                value.proof.c.x.to_string(),
+                value.proof.c.y.to_string(),
+                value.proof.c.z.to_string(),
             ],
-        };
-        // proof_json.insert(
-        //     "pi_a",
-        //     serde_json::Value::Array(vec![
-        //         self.proof.a.x.to_string().into(),
-        //         self.proof.a.y.to_string().into(),
-        //         self.proof.a.z.to_string().into(),
-        //     ]),
-        // );
-        // proof_json.insert(
-        //     "pi_b",
-        //     serde_json::Value::Array(vec![
-        //         serde_json::Value::Array(vec![
-        //             self.proof.b.x[0].to_string().into(),
-        //             self.proof.b.x[1].to_string().into(),
-        //         ]),
-        //         serde_json::Value::Array(vec![
-        //             self.proof.b.y[0].to_string().into(),
-        //             self.proof.b.y[1].to_string().into(),
-        //         ]),
-        //         serde_json::Value::Array(vec![
-        //             self.proof.b.z[0].to_string().into(),
-        //             self.proof.b.z[1].to_string().into(),
-        //         ]),
-        //     ]),
-        // );
-        // proof_json.insert(
-        //     "pi_c",
-        //     serde_json::Value::Array(vec![
-        //         self.proof.c.x.to_string().into(),
-        //         self.proof.c.y.to_string().into(),
-        //         self.proof.c.z.to_string().into(),
-        //     ]),
-        // );
-        // proof_json.insert(
-        //     "protocol",
-        //     serde_json::Value::String(self.proof.protocol.to_owned()),
-        // );
-        // proof_json.insert(
-        //     "curve",
-        //     serde_json::Value::String(self.proof.curve.to_owned()),
-        // );
-        Ok(serde_json::to_string_pretty(&proof)?)
+        }
     }
+}
 
-    #[allow(unused)]
-    pub fn to_snarkjs_pubinput(&self) -> Result<String> {
-        let pub_input: Vec<String> = self
-            .pub_input
+impl ProofWithPubInput {
+    pub fn to_snarkjs_pubinput(&self) -> Vec<String> {
+        self.pub_input
             .iter()
             .skip(1)
             .map(|v| v.to_string())
-            .collect();
-        Ok(serde_json::to_string_pretty(&pub_input)?)
+            .collect()
     }
 
     #[allow(unused)]
@@ -340,11 +304,11 @@ impl ProofWithPubInput {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SnarkjsProof {
-    protocol: String,
-    curve: String,
-    pi_a: Vec<String>,
-    pi_b: Vec<Vec<String>>,
-    pi_c: Vec<String>,
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct SnarkjsProof {
+    pub protocol: String,
+    pub curve: String,
+    pub pi_a: Vec<String>,
+    pub pi_b: Vec<Vec<String>>,
+    pub pi_c: Vec<String>,
 }

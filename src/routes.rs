@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Digest as _;
 
-use crate::{AppState, Job, PartialJob};
+use crate::{AppState, Job, PartialJob, UserError, prover::SnarkjsProof};
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
 const REQUEST_CERT: &str = "/var/www/eudi2web3/fubar_cert.pem";
@@ -237,8 +237,15 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
 #[serde(rename_all = "lowercase", tag = "status")]
 enum JobStatusResponse {
     WaitingForVP,
-    Queued { pos: u64, len: u64 },
-    Completed,
+    Queued {
+        pos: u64,
+        len: u64,
+    },
+    Success {
+        proof: SnarkjsProof,
+        pub_input: Vec<String>,
+    },
+    Error(UserError),
 }
 
 async fn job_status(
@@ -256,6 +263,10 @@ async fn job_status(
             pos: pos - head,
             len: state.queue.len() as u64,
         },
-        PartialJob::Completed => JobStatusResponse::Completed,
+        PartialJob::Completed(Ok(proof)) => JobStatusResponse::Success {
+            proof: proof.into(),
+            pub_input: proof.to_snarkjs_pubinput(),
+        },
+        PartialJob::Completed(Err(e)) => JobStatusResponse::Error(*e),
     }))
 }
