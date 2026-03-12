@@ -5,7 +5,6 @@ describe("JsonGetValue", () => {
     jest.setTimeout(5 * 60 * 1000) // 5 minutes
 
     let circuit: any;
-    const VERSIONS = 6;
 
     beforeAll(async () => {
         // Compile the circuit
@@ -150,6 +149,84 @@ describe("JsonGetValue", () => {
 
             if (cases[i].valid != valid) {
                 throw "Expected constraints to not be fulfilled but they where"
+            }
+        });
+    }
+});
+
+describe("JsonGetSDValue", () => {
+    jest.setTimeout(5 * 60 * 1000) // 5 minutes
+
+    let circuit: any;
+
+    beforeAll(async () => {
+        // Compile the circuit
+        circuit = await wasm_tester(path.join(__dirname, "./test-circuits/jsonGetSDEntry.circom"), {
+            recompile: true,
+            include: path.join(__dirname, "../")
+        })
+    });
+
+    let cases = [
+        {
+            name: "minimal single",
+            data: `{"_sd":["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"`,
+            distance: 0,
+            value: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+            valid: true
+        },
+        {
+            name: "minimal first",
+            data: `{"_sd":["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq","AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"`,
+            distance: 0,
+            value: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+            valid: true
+        },
+        {
+            name: "minimal second",
+            data: `{"_sd":["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"`,
+            distance: 46,
+            value: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+            valid: true
+        },
+        {
+            name: "pretty second",
+            data: ` "_sd": [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"`,
+            distance: 1 + 9 + 46 + 9,
+            value: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+            valid: true
+        }
+    ];
+
+    for (let i = 0; i < cases.length; i++) {
+        it(cases[i].name, async () => {
+            var valid = true;
+            var witness;
+            try {
+                witness = await circuit.calculateWitness({
+                    data: str2paddedBytes(cases[i].data, 256),
+                    distance2quote: cases[i].distance,
+                });
+
+                await circuit.checkConstraints(witness);
+            } catch (e) {
+                valid = false;
+                if (cases[i].valid) {
+                    throw e;
+                }
+            }
+
+
+            if (cases[i].valid != valid) {
+                throw "Expected constraints to not be fulfilled but they where"
+            }
+
+            if (cases[i].valid) {
+                await circuit.assertOut(witness, {
+                    value: str2paddedBytes(cases[i].value, 43),
+                });
             }
         });
     }

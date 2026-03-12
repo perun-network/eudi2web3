@@ -20,6 +20,10 @@ bus Disclosure(sdbytes) {
     signal data[sdbytes*8];
     // @type: u64
     signal length;
+    // @type: u64
+    signal payloadOff;
+    // Value between 0 and 2 to go from base64 block alignment to the json start (character before quote)
+    signal jsonAlign;
 }
 
 bus Location {
@@ -34,7 +38,7 @@ bus Location {
     signal hash_offset;   // Offset to the entry in _sd.
 }
 
-bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
+bus SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) {
     // @type: u128
     signal pk[2][6];                     // Issuer public key
     Signature sig;                                  // Part 1.3
@@ -43,7 +47,7 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
     signal payload[payload_bytes*8];       // Part 1.(1+2):    base64(jwt_header) + '.' + base64(jwt_body)
     // @type: u64
     signal payloadLength;
-    // Disclosure(sdbytes) disclosures[num_sd];        // Part 2-n:        base64(json(disclosure_entry))
+    Disclosure(sdbytes) disclosures[sd_depth];        // Part 2-n:        base64(json(disclosure_entry))
 
     // Additional information (unless we compute- that in witness generation)
     // @type: u64
@@ -60,31 +64,36 @@ bus SDJWT(payload_bytes, num_sd, sdbytes, path_depth) {
     signal payloadOff;
     // Value between 0 and 2 to go from base64 block alignment to the json start (character before quote)
     signal jsonAlign;
+    // @type: u64
+    signal distance2quote;
 }
 
 
-template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
+template SDJWT_ES256_SHA256_1claim(payload_bytes, sd_depth, sdbytes, path_depth) {
     // Including the '.' separator, before base64 decoding
     var MAX_HEADER_SIZE = 2048; // Sadly includes x5c (certificate chain)
-    var MAX_BYTES = 96;
-    var MAX_KEY = 10;
-    var MAX_VALUE = 64;
+    var MAX_BYTES = 768;        // Maximum amount of bytes that need json processing
+    var MAX_KEY = 10;           // Maximum length of the claim's key name (only one segment for now)
+    var MAX_VALUE = 64;         // Maximum length of the claim value we're interested in (output)
+    var MAX_SD_BYTES = 96;
 
-    var CHECK_SIG = 1; // 0: false, 1:true
+    var CHECK_SIG = 0; // 0: false, 1:true
 
-    input SDJWT(payload_bytes, num_sd, sdbytes, path_depth) in;
+    input SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) in;
     signal input value[MAX_VALUE]; // 0-padded
 
     // Canary to detect when rust_witness doesn't have all inputs. Can be removed.
     // signal output test <== 99;
 
-    // var key[MAX_KEY] = [103, 105, 118, 101, 110, 95, 110, 97, 109, 101]; // "given_name"
-    // var key_length = 10;
-    var key[MAX_KEY] = [105, 115, 115, 0, 0, 0, 0, 0, 0, 0]; // "iss"
-    var key_length = 3;
+    var key[MAX_KEY] = [103, 105, 118, 101, 110, 95, 110, 97, 109, 101]; // "given_name"
+    var key_length = 10;
+    // var key[MAX_KEY] = [105, 115, 115, 0, 0, 0, 0, 0, 0, 0]; // "iss"
+    // var key_length = 3;
 
     assert(MAX_BYTES % 3 == 0);
     var MAX_BASE64 = MAX_BYTES / 3 * 4;
+    assert(MAX_SD_BYTES % 3 == 0);
+    var MAX_SD_BASE64 = MAX_SD_BYTES / 3 * 4;
 
     if (CHECK_SIG != 0) {
         // Compute hash of JWT header+body
@@ -115,7 +124,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
         );
         assert(valid);
         valid === 1;
-    }
+}
 
     // We are looking for a json key-value pair: `"key":.*[,}\]]` inside the base64.
     // The base64 decoder we currently have is not sha2 padding aware, so we should
@@ -155,7 +164,6 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     assert(rem[0] == 1);
     assert(rem[1] == 0);
 
-
     // Do not use V3, our base64 can start at an offset!
     signal bytes[MAX_BYTES] <== bits2partialB64DecodeV6(payload_bytes, MAX_BASE64)(
         bits <== in.payload,
@@ -171,12 +179,85 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
     // TODO: Handle the offset that was required for base64.
     signal aligned[MAX_BYTES] <== SliceFixedLenV2(MAX_BYTES, MAX_BYTES)(bytes, in.jsonAlign);
 
+
+    // PERFORMANCE: These two functions are pretty similar. We could try to write one that can do both.
+    // We can't just use JsonCheckKeyValue because it outputs the entire array (even more wasteful) and
+    // we can't just use the SD one because it has a hard coded key (simpler if only that'd be needed).
+    // But: We need both (with the exception of the last one), so we could try to combine them to reduce
+    // the constraint count. I've left them separate for now because it is simpler and so that the
+    // dfiference is measurable.
+    
+    // For now let's start with a hard coded SD
+    signal sd[43] <== JsonGetSDEntry(MAX_BYTES)(
+        data <== aligned,
+        distance2quote <== in.distance2quote
+    );
+    component sdb64 = Base64Decode(32);
+    for (var i = 0; i < 43; i++) {
+        sdb64.in[i] <== sd[i];
+    }
+    sdb64.in[43] <== 61; // '='
+
+    if (CHECK_SIG != 0) {
+        // Compute hash of JWT header+body
+        // TODO: I don't think this verifies if the padding is correct, which could be an attack vector.
+        // For payload_bytes=1024:   524.563 constraints (approx.)
+        // For payload_bytes=2048: 1.049.364 constraints (approx.)
+        // For payload_bytes=4096: 2.098.965 constraints (approx.)
+        signal hash_bin[256] <== Sha256General(sdbytes*8)(
+            paddedIn <== in.disclosures[0].data,
+            paddedInLength <== in.disclosures[0].length
+        );
+
+        // Check if hash matches
+        for (var i = 0; i < 32; i++) {
+            var sum = hash_bin[8*i] * 128
+                + hash_bin[8*i+1] * 64
+                + hash_bin[8*i+2] * 32
+                + hash_bin[8*i+3] * 16
+                + hash_bin[8*i+4] * 8
+                + hash_bin[8*i+5] * 4
+                + hash_bin[8*i+6] * 2
+                + hash_bin[8*i+7];
+            sdb64.out[i] === sum;
+            assert(sdb64.out[i] == sum);
+        }
+    }
+
+    // TODO: Check key
+
+    // Extract the value
+    // Here we can use V3 because we're always properly aligned to base64 blocks.
+    signal bytes2[MAX_SD_BYTES] <== bits2partialB64DecodeV3(sdbytes, MAX_SD_BASE64)(
+        bits <== in.disclosures[0].data,
+        offset <== in.disclosures[0].payloadOff
+    );
+    signal aligned2[MAX_SD_BYTES] <== SliceFixedLenV2(MAX_SD_BYTES, MAX_SD_BYTES)(bytes2, in.disclosures[0].jsonAlign);
+    JsonCheckKeyValue(MAX_SD_BYTES, MAX_KEY, MAX_VALUE)(
+        data <== aligned2,
+        key <== key,
+        key_length <== key_length,
+        value <== value,
+        sep <== 44 // ','
+        // sep <== 58 // ':'
+    );
+
+    // TODO: Make the circuit flexible and allow all of the following:
+    // - No SD (claim direct in root object)
+    // - Value is directly in sd entry (shown above)
+    // - Value is an object in sd entry
+
+    /*
+a pre-defined scope value. See Section 5.5 for more details.
+response_mode:
     JsonCheckKeyValue(MAX_BYTES, MAX_KEY, MAX_VALUE)(
         data <== aligned,
         key <== key,
         key_length <== key_length,
-        value <== value
+        value <== value,
+        sep <== 58 // ':'
     );
+    */
 
     // TODO: Add the following checks:
     // - [x] Confirm we have a valid offset (based on the '.' separator)
@@ -223,6 +304,6 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, num_sd, sdbytes, path_depth) {
 - There should be even more opportunities, given that we need the base64 encoded a binary for computing sha256.
 */
 
-// Configuration: MAX_PAYLOAD_BYTES, num_sd, sdbytes, path_depth
-component main {public [value]} = SDJWT_ES256_SHA256_1claim(4096, 3, 200, 2);
+// Configuration: MAX_PAYLOAD_BYTES, sd_depth, sdbytes, path_depth
+component main {public [value]} = SDJWT_ES256_SHA256_1claim(4096, 1, 256, 2);
 

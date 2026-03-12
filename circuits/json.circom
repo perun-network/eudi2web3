@@ -3,6 +3,7 @@ pragma circom 2.2.3;
 include "circomlib/circuits/comparators.circom";
 include "circomlib/circuits/multiplexer.circom";
 include "util.circom";
+// include "zk-email-verify/packages/circuits/lib/bigint-func.circom";
 
 
 // n: Max number of bytes
@@ -35,7 +36,8 @@ template JsonCheckKeyValue(n, k, v) {
     // As with the key: Input signals that are 0 are not checked against data. This includes quotes and brackets and might be
     // truncated or longer than the actual value. This template does not check the value length.
     signal input value[v];
-
+    // Separating character (usually ':'). Having this configurable allows us to use this template for both objects and SD entries.
+    signal input sep;
 
     // Make sure the starting quote is not escaped. This makes sure we don't start somewhere in the middle of a string.
     // It is still possible that we are starting at the end of a string.
@@ -51,7 +53,7 @@ template JsonCheckKeyValue(n, k, v) {
 
     // For now we're forcing minified (or at least sane) JSON formatting
     gap.out[0] === 34; // '"'
-    gap.out[1] === 58; // ':'
+    gap.out[1] === sep; // ':'
 
     // Check the key matches
     for (var i = 0; i < k; i++) {
@@ -72,3 +74,60 @@ template JsonCheckKeyValue(n, k, v) {
     }
 }
 
+// It makes sure we are processing an array with name `key` (in an object of course).
+// It makes sure value (a fixed length string) is in that array.
+//
+// TODO: Add the following
+// It makes sure we stay within that array
+//
+// PERFORMANCE: It may be beneficial to work on the base64 encoded bytes.
+// That makes this more complex but we don't need to check the entire base64 string.
+template JsonGetSDEntry(n) {
+    var nlog2 = log_ceil(n);
+    log(nlog2);
+
+    // Minimal input consists of "_sd":["<43_base64_bytes>"
+    assert(52 < n);
+
+    signal input data[n];
+    signal input distance2quote;
+    signal output value[43];
+
+    signal escaped <== IsZero()(data[0] - 92); // '\'
+    escaped === 0;
+    data[1] === 34; // '"'
+    data[2] === 95; // '_'
+    data[3] === 115; // 's'
+    data[4] === 100; // 'd'
+    data[5] === 34; // '"'
+    data[6] === 58; // ':'
+
+    // Make sure there is no array closing in-between, so we are still withing the '_sd' array
+    component lt[n-8];
+    component eq[n-8];
+    for (var i = 0; i < n-8; i++) {
+        lt[i] = LessThan(nlog2);
+        lt[i].in[0] <== i;
+        lt[i].in[1] <== distance2quote;
+
+        eq[i] = IsEqual();
+        eq[i].in[0] <== data[i];
+        eq[i].in[1] <== 93;
+
+        lt[i].out * eq[i].out === 0; // In range && ']'
+    }
+
+    // Select/Shift the value bytes
+    component valueSel = SliceFixedLenV2(45, n-8);
+    for (var i = 0; i < n-8; i++) {
+        valueSel.in[i] <== data[i+8];
+    }
+    valueSel.sel <== distance2quote;
+
+    // Check the value matches
+    valueSel.out[0] === 34; // '"'
+    valueSel.out[44] === 34; // '"'
+    for (var i = 0; i < 43; i++) {
+        value[i] <== valueSel.out[1+i];
+    }
+}

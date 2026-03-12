@@ -14,6 +14,7 @@ use num_traits::cast::ToPrimitive;
 use prover::{MultiuseProver, ProofWithPubInput, SnarkjsProof};
 use serde::Serialize;
 use serde_json::json;
+use sha2::Digest;
 use tokio::net::{TcpListener, UnixListener};
 
 // Generated code to go from input to witness.
@@ -34,6 +35,7 @@ mod sdjwt;
 const MAX_PAYLOAD_BYTES: usize = 4096; // JWT header + '.' + body + sha256 padding
 const MAX_HEADER_SIZE: usize = 2048; // JWT header
 const MAX_VALUE_BYTES: usize = 64; // Output value
+const MAX_SD_BYTES: usize = 256;
 
 #[derive(Debug)]
 struct CircuitInput {
@@ -74,16 +76,65 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
     let body_json = BASE64_URL_SAFE_NO_PAD
         .decode(body)
         .map_err(|_| UserError::BadJwtFormat)?;
+    // TODO: Cleanup this mess
     let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name")
         .map_err(|_| UserError::BadJwtFormat)?;
-    if pos.is_none() {
-        // TODO: Circuit does not have proper support for selective disclosure, yet and treaing _sd
-        // is too large for the current MAX_VALUE_BYTES. For testing we use "iss" instead if
-        // "given_name" is not in the root.
-        // pos = keyfinder::find_key_jsonbytes(&body_json, "_sd").expect("invalid json");
-        pos = keyfinder::find_key_jsonbytes(&body_json, "iss")
-            .map_err(|_| UserError::BadJwtFormat)?;
-    }
+    let mut distance2quote = 0;
+    let seg0 = segments.next().unwrap_or("");
+    let mut seg0_payload_off = 0;
+    let mut seg0_json_align = 0;
+    let mut seg0_bytes = vec![];
+    let value = match &pos {
+        Some(pos) => pos.value,
+        None => {
+            let hash = sha2::Sha256::digest(seg0);
+            let hash = BASE64_URL_SAFE_NO_PAD.encode(hash);
+
+            dbg!(&hash);
+
+            // TODO: Circuit does not have proper support for selective disclosure, yet and treaing _sd
+            // is too large for the current MAX_VALUE_BYTES. For testing we use "iss" instead if
+            // "given_name" is not in the root.
+            pos = keyfinder::find_array_entry_by_str_value(&body_json, "_sd", &hash)
+                .map_err(|_| UserError::BadJwtFormat)?;
+            // pos = keyfinder::find_key_jsonbytes(&body_json, "iss")
+            //     .map_err(|_| UserError::BadJwtFormat)?;
+
+            dbg!(&pos);
+
+            match &pos {
+                Some(pos) => {
+                    // 0 is minified json (: and [ are not included).
+                    // We need to subtract an additional character because pos.value_start does not point
+                    // at the quote.
+                    distance2quote = pos.value_start - pos.key_end_quote - 3;
+
+                    seg0_bytes = BASE64_URL_SAFE_NO_PAD
+                        .decode(&seg0)
+                        .map_err(|_| UserError::BadJwtFormat)?;
+
+                    let mut pos2 =
+                        keyfinder::find_array_follower_by_str_value(&seg0_bytes, "given_name")
+                            .map_err(|e| {
+                                dbg!(e);
+                                UserError::ClaimNotFound
+                            })?;
+
+                    // TODO: Properly handle nested SDs.
+                    let pos2 = pos2.unwrap();
+                    dbg!(&pos2);
+
+                    seg0_payload_off = (pos2.key_start_quote - 1) / 3 * 4;
+                    seg0_json_align = (pos2.key_start_quote - 1) % 3;
+
+                    dbg!(&seg0[seg0_payload_off..]);
+
+                    pos2.value
+                }
+                None => return Err(UserError::ClaimNotFound),
+            }
+        }
+    };
     let Some(pos) = pos else {
         return Err(UserError::ClaimNotFound);
     };
@@ -91,7 +142,15 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
     // of a string.
     let payload_off = header.len() + 1 + (pos.key_start_quote - 1) / 3 * 4;
     let json_align = (pos.key_start_quote - 1) % 3;
-    dbg!(&pos, payload_off, json_align);
+    dbg!(
+        &pos,
+        payload_off,
+        json_align,
+        distance2quote,
+        seg0_payload_off,
+        seg0_json_align,
+        &value
+    );
 
     // Various checks whether the circuit can process this VP
     if sha2padded_len(message.len()) > MAX_PAYLOAD_BYTES {
@@ -105,7 +164,8 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
     }
 
     // Quick fix for testing with issued credentials (which are not minified)
-    let value = format!(" {}", pos.value);
+    let value = format!(" {}", value);
+    // let value = pos.value;
 
     // Build the input
     // IMPORTANT: rust_witness fails silently if any input signal is missing, setting all
@@ -115,17 +175,31 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
     let sig_r = bebytes2limbs(&sig[..32]);
     let sig_s = bebytes2limbs(&sig[32..]);
     let (payload, payload_padded_len) = str2binary_sha2padding(message, MAX_PAYLOAD_BYTES);
-    let lengths = vec![
-        payload_padded_len.into(),
-        header.len().into(),
-        payload_off.into(),
-        json_align.into(),
-    ];
+    let (seg0_data, seg0_len) = str2binary_sha2padding(seg0, MAX_SD_BYTES);
     Ok(CircuitInput {
-        input: [pk_x, pk_y, sig_r, sig_s, payload, lengths]
-            .into_iter()
-            .flatten()
-            .collect(),
+        input: [
+            pk_x,
+            pk_y,
+            sig_r,
+            sig_s,
+            payload,
+            vec![payload_padded_len.into()],
+            seg0_data,
+            vec![
+                seg0_len.into(),
+                seg0_payload_off.into(),
+                seg0_json_align.into(),
+            ],
+            vec![
+                header.len().into(),
+                payload_off.into(),
+                json_align.into(),
+                distance2quote.into(),
+            ],
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
         value: zeropad_str(&value, MAX_VALUE_BYTES),
     })
 }
@@ -336,7 +410,7 @@ fn compute_proof(prover: &MultiuseProver, job: Job) -> Result<ProofWithPubInput,
     let valid = prover.verify(&proof).unwrap();
     print_execution_time("Proof verification finished", t0);
 
-    dbg!(&proof, valid);
+    dbg!(valid);
 
     if valid {
         Ok(proof)
@@ -368,7 +442,7 @@ fn main1() {
             "hello": "world"
         }
     });
-    let sd_strategy = sd_jwt_rs::ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.address"]);
+    let sd_strategy = sd_jwt_rs::ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.given_name"]);
     let serde_json::Value::Object(claims_to_disclose) = json!({
         // "address": {
         //     "region": true,

@@ -7,8 +7,6 @@ describe("bits2partialB64", () => {
     let circuits: any[];
     const VERSIONS = 6;
 
-    console.log(process.env.PATH);
-
     beforeAll(async () => {
         circuits = [];
         // Compile the circuits
