@@ -77,7 +77,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, sd_depth, sdbytes, path_depth)
     var MAX_VALUE = 64;         // Maximum length of the claim value we're interested in (output)
     var MAX_SD_BYTES = 96;
 
-    var CHECK_SIG = 0; // 0: false, 1:true
+    var CHECK_SIG = 1; // 0: false, 1:true
 
     input SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) in;
     signal input value[MAX_VALUE]; // 0-padded
