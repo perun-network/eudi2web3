@@ -1,0 +1,158 @@
+{
+  "preamble": {
+    "title": "perun-network/eudi2web3",
+    "description": "Aiken contracts for project 'perun-network/eudi2web3'",
+    "version": "0.0.0",
+    "plutusVersion": "v3",
+    "compiler": {
+      "name": "Aiken",
+      "version": "v1.1.21+unknown"
+    },
+    "license": "Apache-2.0"
+  },
+  "validators": [
+    {
+      "title": "eudi2web3_demo.eudi2web3_demo.spend",
+      "datum": {
+        "title": "_datum",
+        "schema": {
+          "$ref": "#/definitions/Data"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/eudi2web3_demo~1Redeemer"
+        }
+      },
+      "parameters": [
+        {
+          "title": "vk",
+          "schema": {
+            "$ref": "#/definitions/ak_381~1groth16~1SnarkVerificationKey"
+          }
+        }
+      ],
+      "compiledCode": "590218010100229800aba2aba1aba0aab9faab9eaab9dab9a488888896600264653001300800198041804800cc0200092225980099b8748008c01cdd500144ca60026018003300c300d0019b874800122259800980098059baa00789919192cc004c04c00a264b30013005300f3754003132323298009bae30160019bae30160039bae30160024889660026034009159800cc0048c068c06c0064466f10ddd8011bc20019180d180d980d800c88896600200710018acc00400a2d198008024c07800e603c0053376c00266ee0dd6980e8011bbb375c603a006802101b2036980c980b1baa011488888c8cde3198029bae301f301c37540046eb8c018c070dd500119bc53378a6600a6eb8c018c070dd50111bae3004301c375404466f10c966002003168cc004c0840066464660020026eb8c024c07cdd500d112cc004c054dc6800c52f5c1133022375066f2928cc004006900052002400c660040053001001a4005337006e340052001400c80f088a60020053370066e040040092002801ae3137766eb8c080005002203c3758603e60406040604060406040604060386ea8088de11bae301f302030203020301c37540446600a6eb8c010c070dd50011bae301f3020302030203020301c375404460040048a518b20288b202e180b000980a80098081baa0018b201c30120038b2020375c6022002602200260186ea801e2c805060106ea800a2c8030601000260066ea802229344d95900101",
+      "hash": "076b6f67cd24e5e1dbf9f19f8dee551b6ea8e4cb52e51d1b3ea4df52"
+    },
+    {
+      "title": "eudi2web3_demo.eudi2web3_demo.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "parameters": [
+        {
+          "title": "vk",
+          "schema": {
+            "$ref": "#/definitions/ak_381~1groth16~1SnarkVerificationKey"
+          }
+        }
+      ],
+      "compiledCode": "590218010100229800aba2aba1aba0aab9faab9eaab9dab9a488888896600264653001300800198041804800cc0200092225980099b8748008c01cdd500144ca60026018003300c300d0019b874800122259800980098059baa00789919192cc004c04c00a264b30013005300f3754003132323298009bae30160019bae30160039bae30160024889660026034009159800cc0048c068c06c0064466f10ddd8011bc20019180d180d980d800c88896600200710018acc00400a2d198008024c07800e603c0053376c00266ee0dd6980e8011bbb375c603a006802101b2036980c980b1baa011488888c8cde3198029bae301f301c37540046eb8c018c070dd500119bc53378a6600a6eb8c018c070dd50111bae3004301c375404466f10c966002003168cc004c0840066464660020026eb8c024c07cdd500d112cc004c054dc6800c52f5c1133022375066f2928cc004006900052002400c660040053001001a4005337006e340052001400c80f088a60020053370066e040040092002801ae3137766eb8c080005002203c3758603e60406040604060406040604060386ea8088de11bae301f302030203020301c37540446600a6eb8c010c070dd50011bae301f3020302030203020301c375404460040048a518b20288b202e180b000980a80098081baa0018b201c30120038b2020375c6022002602200260186ea801e2c805060106ea800a2c8030601000260066ea802229344d95900101",
+      "hash": "076b6f67cd24e5e1dbf9f19f8dee551b6ea8e4cb52e51d1b3ea4df52"
+    }
+  ],
+  "definitions": {
+    "ByteArray": {
+      "dataType": "bytes"
+    },
+    "Data": {
+      "title": "Data",
+      "description": "Any Plutus data."
+    },
+    "Int": {
+      "dataType": "integer"
+    },
+    "List<ByteArray>": {
+      "dataType": "list",
+      "items": {
+        "$ref": "#/definitions/ByteArray"
+      }
+    },
+    "ak_381/groth16/Proof": {
+      "title": "Proof",
+      "anyOf": [
+        {
+          "title": "Proof",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "piA",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "piB",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "piC",
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        }
+      ]
+    },
+    "ak_381/groth16/SnarkVerificationKey": {
+      "title": "SnarkVerificationKey",
+      "anyOf": [
+        {
+          "title": "SnarkVerificationKey",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "nPublic",
+              "$ref": "#/definitions/Int"
+            },
+            {
+              "title": "vkAlpha",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "vkBeta",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "vkGamma",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "vkDelta",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "vkAlphaBeta",
+              "$ref": "#/definitions/List<ByteArray>"
+            },
+            {
+              "title": "vkIC",
+              "$ref": "#/definitions/List<ByteArray>"
+            }
+          ]
+        }
+      ]
+    },
+    "eudi2web3_demo/Redeemer": {
+      "title": "Redeemer",
+      "anyOf": [
+        {
+          "title": "Redeemer",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "proof",
+              "$ref": "#/definitions/ak_381~1groth16~1Proof"
+            },
+            {
+              "title": "value",
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

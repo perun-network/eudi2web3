@@ -1,0 +1,23 @@
+name = "perun-network/eudi2web3"
+version = "0.0.0"
+compiler = "v1.1.21"
+plutus = "v3"
+license = "Apache-2.0"
+description = "Aiken contracts for project 'perun-network/eudi2web3'"
+
+[repository]
+user = "perun-network"
+project = "eudi2web3"
+platform = "github"
+
+[[dependencies]]
+name = "aiken-lang/stdlib"
+version = "v3.0.0"
+source = "github"
+
+[[dependencies]]
+name = "modulo-p/ak-381"
+version = "v0.1.1"
+source = "github"
+
+[config]
