@@ -567,8 +567,10 @@ mod test {
     use serde_json::json;
 
     // This code comes from MS1
+    // In debug mode it is basically unusable, taking ~200 seconds (without signature verification
+    // in the proof). This test can be run with `cargo test --lib -F slow-tests --release`
     #[test]
-    #[cfg_attr(not(feature = "slow-tests"), ignore)]
+    #[cfg_attr(not(all(feature = "slow-tests", not(debug_assertions))), ignore)]
     fn compute_proof_using_generated_credential() {
         // Create a credential for testing
         let claims = json!({
