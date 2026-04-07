@@ -1,5 +1,6 @@
 const form = document.getElementById("submit_request_form");
 const addrInput = document.getElementById("addr");
+const publishInput = document.getElementById("publish");
 const addrError = document.getElementById("addr-error");
 const step1Card = document.getElementById("step1-card");
 const outputDiv = document.getElementById("output");
@@ -181,6 +182,7 @@ function updateTxLink(txHash) {
   }
 
   txExplorerLink.href = `https://cardanoscan.io/transaction/${txHash}`;
+  txExplorerLink.textContent = "View on Cardanoscan";
   setVisible(txExplorerLink, true, "inline-flex");
 }
 
@@ -389,14 +391,14 @@ function startProofPolling(requestId) {
           eta_seconds: etaSeconds,
         });
       } else if (status === "success") {
-        const { proof, pub_input, parsed } = data;
+        const { proof, pub_input, parsed, tx } = data;
         jobStatus = "success";
         
         applyQueueUpdate("success", {
           proof,
           pub_input,
           parsed,
-          // tx_hash and tx_cbor would be included if the API provides them
+          tx_hash: tx,
         });
         
         stopProofPolling();
@@ -441,6 +443,7 @@ function initializeProofRequest() {
     e.preventDefault();
 
     const addr = form.addr.value.trim();
+    const publish = form.publish.checked;
     form.addr.value = addr;
     setAddressError("");
 
@@ -463,7 +466,7 @@ function initializeProofRequest() {
       const response = await fetch(form.action, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addr }),
+        body: JSON.stringify({ addr, publish }),
       });
 
       if (!response.ok) {

@@ -89,6 +89,14 @@
                 class="form-input mono" autocomplete="off" spellcheck="false">
               <p id="addr-error" class="form-error" style="display: none;" role="alert"></p>
             </div>
+            <div class="form-group">
+              <label class="form-checkbox-container">
+                <input type="checkbox" name="publish" id="publish" class="form-checkbox">
+                <span class="form-checkbox-checkmark"></span>
+                <span class="form-checkbox-label">Publish proof on Cardano blockchain</span>
+              </label>
+              <p class="form-help-text">When checked, your zero-knowledge proof will be published as a transaction on the Cardano blockchain.</p>
+            </div>
             <button type="submit" class="btn btn-primary" id="submit-btn">
               <span class="btn-text">Request Credential Proof</span>
               <span class="btn-loader" aria-hidden="true"></span>
