@@ -1,19 +1,19 @@
 # eudi2web3
+## Setup
+**Faucet**: https://docs.cardano.org/cardano-testnets/tools/faucet
 
-Write validators in the `validators` folder, and supporting functions in the `lib` folder using `.ak` as a file extension.
+```bash
+# Generate key pair
+cardano-cli address key-gen --verification-key-file me.vk --signing-key-file me.sk
+cardano-cli conway address build --testnet-magic 2 --payment-verification-key-file me.vk | tee me.addr
 
-```aiken
-validator my_first_validator {
-  spend(_datum: Option<Data>, _redeemer: Data, _output_reference: Data, _context: Data) {
-    True
-  }
-}
-```
+# Convert aiken output into a format usable by cardano-cli
+aiken blueprint convert > eudi2web3_demo.script
+# Compute "contract" address
+cardano-cli address build --testnet-magic 2 --payment-script-file eudi2web3_demo.script | tee eudi2web3_demo.addr
 
-## Building
+# Create UTXO with the script
 
-```sh
-aiken build
 ```
 
 ## Configuring
@@ -26,39 +26,6 @@ network_id = 41
 
 Or, alternatively, write conditional environment modules under `env`.
 
-## Testing
-
-You can write tests in any module using the `test` keyword. For example:
-
-```aiken
-use config
-
-test foo() {
-  config.network_id + 1 == 42
-}
-```
-
-To run all tests, simply do:
-
-```sh
-aiken check
-```
-
-To run only tests matching the string `foo`, do:
-
-```sh
-aiken check -m foo
-```
-
-## Documentation
-
-If you're writing a library, you might want to generate an HTML documentation for it.
-
-Use:
-
-```sh
-aiken docs
-```
 
 ## Resources
 

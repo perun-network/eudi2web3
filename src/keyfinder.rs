@@ -68,8 +68,7 @@ pub fn find_array_entry_by_str_value<'a, 'k>(
         return Ok(None);
     };
 
-    let mut pos = compute_position_from_slices(raw.key, value, data);
-    Ok(Some(pos))
+    Ok(Some(compute_position_from_slices(raw.key, value, data)))
 }
 
 pub fn find_array_follower_by_str_value<'a, 'k>(
@@ -213,7 +212,7 @@ impl<'de> serde::de::Visitor<'de> for StrValueSiblingFinderVisitor<'_> {
         };
 
         // Consume the rest
-        while let Some(value) = seq.next_element::<&RawValue>()? {}
+        while let Some(_) = seq.next_element::<&RawValue>()? {}
 
         Ok(Some(RawPosition { key, value }))
     }

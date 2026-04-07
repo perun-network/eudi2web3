@@ -1,17 +1,15 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     num::NonZeroUsize,
-    ops::{Deref, DerefMut},
     sync::{Arc, atomic::AtomicU64},
     time::Instant,
 };
 
-use axum::Router;
 use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::Receiver;
 use num_bigint::{BigInt, BigUint};
 use num_traits::cast::ToPrimitive;
-use prover::{MultiuseProver, ProofWithPubInput, SnarkjsProof};
+use prover::{MultiuseProver, ProofWithPubInput};
 use serde::Serialize;
 use serde_json::json;
 use sha2::Digest;
@@ -24,6 +22,10 @@ mod witness {
 
     // rust_witness::witness!(dlpexample);
     rust_witness::witness!(sdjwtes256sha2561claim);
+}
+
+pub mod publish {
+    pub mod cardano;
 }
 
 mod keyfinder;
@@ -83,7 +85,7 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
     let seg0 = segments.next().unwrap_or("");
     let mut seg0_payload_off = 0;
     let mut seg0_json_align = 0;
-    let mut seg0_bytes = vec![];
+    let seg0_bytes;
     let value = match &pos {
         Some(pos) => pos.value,
         None => {
@@ -113,7 +115,7 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
                         .decode(&seg0)
                         .map_err(|_| UserError::BadJwtFormat)?;
 
-                    let mut pos2 =
+                    let pos2 =
                         keyfinder::find_array_follower_by_str_value(&seg0_bytes, "given_name")
                             .map_err(|e| {
                                 dbg!(e);
@@ -320,8 +322,7 @@ struct Job {
     pub id: u64,
 }
 
-#[tokio::main]
-async fn main() {
+pub async fn run_server() {
     let bind = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
 
     let job_queue = crossbeam::channel::unbounded();
@@ -422,7 +423,7 @@ fn compute_proof(prover: &MultiuseProver, job: Job) -> Result<ProofWithPubInput,
     }
 }
 
-fn main1() {
+fn proof_gen_test() {
     // Create a credential for testing
     let claims = json!({
         "sub": "6c5c0a49-b589-431d-bae7-219122a9ec2c",

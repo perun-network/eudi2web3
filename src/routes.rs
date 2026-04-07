@@ -227,7 +227,7 @@ struct StatusResponse {
 
 async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
     // PERFORMANCE: Probably should find a way to make this not need locking
-    let guard = state.mu.lock().await;
+    let _ = state.mu.lock().await;
     Json(StatusResponse {
         queue_head: state.queue_head.load(Ordering::Relaxed),
         queue_len: state.queue.len(),

@@ -39,10 +39,17 @@ ark-serialize = "0.5.0"
 wtns-file = "0.1.5"
 ark-snark = "0.5.1"
 axum = "0.8.8"
-tokio = { version = "1.50.0", features = ["net", "rt-multi-thread"] }
+tokio = { version = "1.50.0", features = ["fs", "net", "rt-multi-thread"] }
 urlencoding = "2.1.3"
 crossbeam = "0.8.4"
 num-traits = "0.2.19"
+pallas-txbuilder = "0.35.0"
+hex = "0.4.3"
+pallas-primitives = "0.35.0"
+reqwest = { version = "0.13.2", features = ["json"] }
+pallas-addresses = "0.35.0"
+pallas-wallet = "0.35.0"
+pallas-crypto = "0.35.0"
 
 [build-dependencies]
 cc = { version = "1.2.55", features = ["parallel"] }
