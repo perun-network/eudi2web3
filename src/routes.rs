@@ -14,7 +14,7 @@ use serde_json::json;
 use sha2::Digest as _;
 
 use crate::{
-    AppState, Job, ParsedPubInput, PartialJob, UserError, prover::SnarkjsProof, pubinput2parsed,
+    AppState, JobNew, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof, pubinput2parsed,
 };
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
@@ -33,6 +33,7 @@ pub fn build_router() -> Router<Arc<AppState>> {
 #[derive(Debug, Deserialize)]
 struct SubmitDataRequest {
     addr: String,
+    publish: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,8 +56,9 @@ async fn submit_data(
     let x509_hash = sha2::Sha256::digest(certs[0].contents());
     let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(&x509_hash);
 
-    let id = state.mu.lock().await.lookup.push(PartialJob::Partial {
+    let id = state.jobs.lock().await.push(JobNew::Partial {
         cardano_addr: data.addr,
+        publish: data.publish,
     });
 
     let url = format!(
@@ -187,29 +189,30 @@ async fn vp_auth(
     })?;
 
     // TODO: Extend checking by verifying the credential itself
-
-    // Move the job to the queue and mark it as moved.
-    let mut guard = state.mu.lock().await;
+    let mut guard = state.jobs.lock().await;
+    // This isn't fully accurate, there is a small data race that can result in using the same pos
+    // twice for example. But it is nonetheless accurate enough for progress bars.
     let pos = state.queue_head.load(Ordering::Relaxed) + state.queue.len() as u64;
-    let old = guard
-        .lookup
-        .data
-        .get_mut(&id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let PartialJob::Partial { .. } = old else {
+    let old = guard.data.get_mut(&id).ok_or(StatusCode::NOT_FOUND)?;
+    let JobNew::Partial { .. } = old else {
         return Err(StatusCode::NOT_FOUND);
     };
-    let mut job = PartialJob::Queued(pos);
+    let mut job = JobNew::Queued { pos };
     std::mem::swap(old, &mut job);
-    let PartialJob::Partial { cardano_addr } = job else {
+    let JobNew::Partial {
+        cardano_addr,
+        publish,
+    } = job
+    else {
         unreachable!();
     };
     state
         .queue
-        .send(Job {
+        .send(QueuedJob {
+            id,
             cardano_addr,
             vp_token,
-            id,
+            publish,
         })
         .unwrap();
 
@@ -226,8 +229,6 @@ struct StatusResponse {
 }
 
 async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
-    // PERFORMANCE: Probably should find a way to make this not need locking
-    let _ = state.mu.lock().await;
     Json(StatusResponse {
         queue_head: state.queue_head.load(Ordering::Relaxed),
         queue_len: state.queue.len(),
@@ -249,6 +250,7 @@ enum JobStatusResponse {
         // Public input as parsed data (easier to read/understand).
         // Not useful for proof verification, intended to be used only for display to the user.
         parsed: ParsedPubInput,
+        tx: Option<String>,
     },
     Error(UserError),
 }
@@ -257,22 +259,23 @@ async fn job_status(
     State(state): State<Arc<AppState>>,
     Path(id): Path<u64>,
 ) -> Result<Json<JobStatusResponse>, StatusCode> {
-    let guard = state.mu.lock().await;
-    let job = guard.lookup.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
+    let guard = state.jobs.lock().await;
+    let job = guard.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
     let head = state.queue_head.load(Ordering::Relaxed);
     Ok(Json(match job {
-        PartialJob::Partial { .. } => JobStatusResponse::WaitingForVP,
-        PartialJob::Queued(pos) => JobStatusResponse::Queued {
+        JobNew::Partial { .. } => JobStatusResponse::WaitingForVP,
+        JobNew::Queued { pos } => JobStatusResponse::Queued {
             // These may be slightly off due to a small race condition. Shouldn't matter though, as
             // this is only used for reporting progress in the UI.
             pos: pos - head,
             len: state.queue.len() as u64,
         },
-        PartialJob::Completed(Ok(proof)) => JobStatusResponse::Success {
+        JobNew::Completed { proof, tx } => JobStatusResponse::Success {
             proof: proof.into(),
             parsed: pubinput2parsed(&proof.pub_input),
             pub_input: proof.to_snarkjs_pubinput(),
+            tx: tx.clone(),
         },
-        PartialJob::Completed(Err(e)) => JobStatusResponse::Error(*e),
+        JobNew::Error(e) => JobStatusResponse::Error(*e),
     }))
 }

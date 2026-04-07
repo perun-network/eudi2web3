@@ -273,14 +273,14 @@ fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
 #[derive(Debug)]
 struct AppState {
     /// Incomplete jobs (e.g. still waiting on credential VP)
-    pub mu: tokio::sync::Mutex<Inner>,
-    pub queue: crossbeam::channel::Sender<Job>,
+    pub jobs: tokio::sync::Mutex<HashMapAutokey<JobNew>>,
+    pub queue: crossbeam::channel::Sender<QueuedJob>,
     pub queue_head: AtomicU64,
 }
 
 #[derive(Debug, Default)]
 struct Inner {
-    pub lookup: HashMapAutokey<PartialJob>,
+    pub lookup: HashMapAutokey<JobNew>,
 }
 
 #[derive(Debug)]
@@ -306,20 +306,34 @@ impl<T> HashMapAutokey<T> {
     }
 }
 
+type JobID = u64;
+
+// TODO: Rename
 #[derive(Debug)]
-enum PartialJob {
-    Partial { cardano_addr: String },
+enum JobNew {
+    Partial {
+        cardano_addr: String,
+        publish: bool,
+    },
     // This is not 100% accurate, multiple jobs can end up with the same queue position in here,
     // but that shouldn't matter since it is primarily used for indicating progress in the
     // frontend.
-    Queued(u64),
-    Completed(Result<ProofWithPubInput, UserError>),
+    Queued {
+        pos: u64,
+    },
+    Completed {
+        proof: ProofWithPubInput,
+        tx: Option<String>,
+    },
+    Error(UserError),
 }
+
 #[derive(Debug)]
-struct Job {
-    pub cardano_addr: String,
-    pub vp_token: String,
-    pub id: u64,
+struct QueuedJob {
+    id: JobID,
+    cardano_addr: String,
+    publish: bool,
+    vp_token: String,
 }
 
 pub async fn run_server() {
@@ -327,7 +341,7 @@ pub async fn run_server() {
 
     let job_queue = crossbeam::channel::unbounded();
     let state = Arc::new(AppState {
-        mu: Default::default(),
+        jobs: Default::default(),
         queue: job_queue.0,
         queue_head: 0.into(),
     });
@@ -355,7 +369,7 @@ pub async fn run_server() {
 fn start_workers(
     workers: NonZeroUsize,
     prover: &'static MultiuseProver,
-    input: Receiver<Job>,
+    input: Receiver<QueuedJob>,
     state: Arc<AppState>,
 ) {
     for _ in 0..workers.into() {
@@ -364,19 +378,24 @@ fn start_workers(
         std::thread::spawn(move || {
             while let Ok(job) = input.recv() {
                 // We took something out of the queue
-                let id = job.id;
-                let res = compute_proof(prover, job);
-                match state.mu.blocking_lock().lookup.data.get_mut(&id) {
-                    Some(j @ PartialJob::Queued(_)) => *j = PartialJob::Completed(res),
-                    Some(_) => unreachable!(),
-                    None => println!("WARN: Job got removed during processing"),
+                let res = compute_proof(prover, &job);
+                let proof = match res {
+                    Ok(proof) => proof,
+                    Err(err) => {
+                        state.update_job_queued(job.id, JobNew::Error(err));
+                        continue;
+                    }
+                };
+                if job.publish {
+                    todo!()
                 }
+                state.update_job_queued(job.id, JobNew::Completed { proof, tx: None });
             }
         });
     }
 }
 
-fn compute_proof(prover: &MultiuseProver, job: Job) -> Result<ProofWithPubInput, UserError> {
+fn compute_proof(prover: &MultiuseProver, job: &QueuedJob) -> Result<ProofWithPubInput, UserError> {
     dbg!(&job);
 
     // TODO: We need to use the correct issuer (e.g. allow multiple)
@@ -420,6 +439,24 @@ fn compute_proof(prover: &MultiuseProver, job: Job) -> Result<ProofWithPubInput,
         // in advance in the Rust code. We don't get this info earlier because error reporting of
         // rust_witness isn't good (doesn't even exist without modifications).
         Err(UserError::UnknownErrorInvalidProof)
+    }
+}
+
+impl AppState {
+    fn update_job_queued(&self, id: JobID, new: JobNew) {
+        match self.jobs.blocking_lock().data.get_mut(&id) {
+            Some(j @ JobNew::Queued { .. }) => *j = new,
+            Some(j) => {
+                if cfg!(debug_assertions) {
+                    panic!("Unexpected Job state: {j:?}");
+                } else {
+                    println!(
+                        "ERROR: update_job_queued: Unexpected Job state, not writing new state: {j:?}"
+                    );
+                }
+            }
+            None => println!("WARN: update_job_queued: Job does not exist"),
+        }
     }
 }
 
