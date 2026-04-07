@@ -40,7 +40,7 @@ const MAX_HEADER_SIZE: usize = 2048; // JWT header
 const MAX_VALUE_BYTES: usize = 64; // Output value
 const MAX_SD_BYTES: usize = 256;
 
-pub const ISSUER_PUBLIC: &[u8] = b"
+const ISSUER_PUBLIC: &[u8] = b"
 -----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEw7JAoU/gJbZJvV+zCOvU9yFJq0FN
 C/edCMRM78P8eQTBCDUTK1ywSYaszvQZvneiW6gNtWEJndSreEcyyUdVvg==
@@ -120,7 +120,7 @@ fn presentation2input(presentation: &str, issuer_pk: [u8; 64]) -> Result<Circuit
                     distance2quote = pos.value_start - pos.key_end_quote - 3;
 
                     seg0_bytes = BASE64_URL_SAFE_NO_PAD
-                        .decode(&seg0)
+                        .decode(seg0)
                         .map_err(|_| UserError::BadJwtFormat)?;
 
                     let pos2 =
@@ -281,7 +281,7 @@ fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
 #[derive(Debug)]
 struct AppState {
     /// Incomplete jobs (e.g. still waiting on credential VP)
-    pub jobs: tokio::sync::Mutex<HashMapAutokey<JobNew>>,
+    pub jobs: tokio::sync::Mutex<HashMapAutokey<Job>>,
     pub queue: crossbeam::channel::Sender<QueuedJob>,
     pub queue_head: AtomicU64,
 }
@@ -313,22 +313,20 @@ type JobID = u64;
 
 // TODO: Rename
 #[derive(Debug)]
-enum JobNew {
-    Partial {
-        cardano_addr: String,
-        publish: bool,
-    },
+enum Job {
+    Partial { cardano_addr: String, publish: bool },
     // This is not 100% accurate, multiple jobs can end up with the same queue position in here,
     // but that shouldn't matter since it is primarily used for indicating progress in the
     // frontend.
-    Queued {
-        pos: u64,
-    },
-    Completed {
-        proof: ProofWithPubInput,
-        tx: Option<[u8; 32]>,
-    },
+    Queued { pos: u64 },
+    Completed(Box<CompletedJob>), // CompletedJob is significantly larger than the other variants
     Error(UserError),
+}
+
+#[derive(Debug)]
+struct CompletedJob {
+    proof: ProofWithPubInput,
+    tx: Option<[u8; 32]>,
 }
 
 #[derive(Debug)]
@@ -390,14 +388,20 @@ fn start_workers(
                             let t0 = Instant::now();
                             let tx = Some(publish::cardano::publish(&proof).await);
                             print_execution_time("cardano::publish finished", t0);
-                            s.update_job_queued(job.id, JobNew::Completed { proof, tx });
+                            s.update_job_queued(
+                                job.id,
+                                Job::Completed(Box::new(CompletedJob { proof, tx })),
+                            );
                         });
                     }
                     Ok(proof) => {
-                        state.update_job_queued(job.id, JobNew::Completed { proof, tx: None });
+                        state.update_job_queued(
+                            job.id,
+                            Job::Completed(Box::new(CompletedJob { proof, tx: None })),
+                        );
                     }
                     Err(err) => {
-                        state.update_job_queued(job.id, JobNew::Error(err));
+                        state.update_job_queued(job.id, Job::Error(err));
                         continue;
                     }
                 };
@@ -413,7 +417,7 @@ fn compute_proof(prover: &MultiuseProver, job: &QueuedJob) -> Result<ProofWithPu
 
     // TODO: We need to use the correct issuer (e.g. allow multiple)
     // We test with hard coded issuer public key. In the long run this likely gets more complex.
-    let issuer_pk = pem::parse(&ISSUER_PUBLIC).unwrap();
+    let issuer_pk = pem::parse(ISSUER_PUBLIC).unwrap();
     let issuer_pk = issuer_pk.contents();
     let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
     assert_eq!(issuer_pk[0], 0x04);
@@ -456,9 +460,9 @@ fn compute_proof(prover: &MultiuseProver, job: &QueuedJob) -> Result<ProofWithPu
 }
 
 impl AppState {
-    fn update_job_queued(&self, id: JobID, new: JobNew) {
+    fn update_job_queued(&self, id: JobID, new: Job) {
         match self.jobs.blocking_lock().data.get_mut(&id) {
-            Some(j @ JobNew::Queued { .. }) => *j = new,
+            Some(j @ Job::Queued { .. }) => *j = new,
             Some(j) => {
                 if cfg!(debug_assertions) {
                     panic!("Unexpected Job state: {j:?}");
@@ -488,7 +492,7 @@ fn bebytes2limbs(coord: &[u8]) -> Vec<BigInt> {
     let mut n = BigInt::from_bytes_be(num_bigint::Sign::Plus, coord); // or from_bytes_le depending on circom convention
     let mask = (BigInt::from(1u64) << 43) - 1u64;
     for _ in 0..6 {
-        limbs.push((&n & &mask).into());
+        limbs.push(&n & &mask);
         n >>= 43;
     }
     limbs
@@ -503,7 +507,7 @@ fn sha2padded_len(len: usize) -> usize {
 // what we need to pass to the circuit.
 fn str2binary_sha2padding(s: &str, max_padded_len: usize) -> (Vec<BigInt>, usize) {
     // Sanity check, the sha256 dependency requires a multiple of 512 bits for the max size.
-    assert!(max_padded_len % 64 == 0);
+    assert!(max_padded_len.is_multiple_of(64));
     // Make sure the data actually fits. Both asserts should check the same thing (esp. since the 1
     // bit always needs 8 bits of space).
     assert!(sha2padded_len(s.len()) <= max_padded_len);
@@ -620,7 +624,7 @@ mod test {
         print_execution_time("ZKey loading finished", t0);
 
         // We test with hard coded issuer public key. In the long run this likely gets more complex.
-        let issuer_pk = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
+        let issuer_pk = pem::parse(crate::ISSUER_PUBLIC).unwrap();
         let issuer_pk = issuer_pk.contents();
         let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
         assert_eq!(issuer_pk[0], 0x04);

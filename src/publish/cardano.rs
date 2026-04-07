@@ -282,7 +282,7 @@ fn select_utxo_publish<'a>(
             script = Some(u);
             continue;
         }
-        if u.amount.len() == 0 {
+        if u.amount.is_empty() {
             continue;
         }
         if u.amount[0].unit != "lovelace" {

@@ -22,9 +22,9 @@ struct RawPosition<'data> {
 }
 
 /// Only searches in the upper-most layer, doesn't go into sub-objects.
-pub fn find_key_jsonbytes<'a, 'k>(
+pub fn find_key_jsonbytes<'a>(
     data: &'a [u8],
-    key: &'k str,
+    key: &str,
 ) -> serde_json::Result<Option<Position<'a>>> {
     let mut deserializer = serde_json::Deserializer::new(SliceRead::new(data));
     let raw = deserializer.deserialize_map(KeyFinderVisitor { key })?;
@@ -71,9 +71,9 @@ pub fn find_array_entry_by_str_value<'a, 'k>(
     Ok(Some(compute_position_from_slices(raw.key, value, data)))
 }
 
-pub fn find_array_follower_by_str_value<'a, 'k>(
+pub fn find_array_follower_by_str_value<'a>(
     data: &'a [u8],
-    value_to_find: &'k str,
+    value_to_find: &str,
 ) -> serde_json::Result<Option<Position<'a>>> {
     dbg!(value_to_find);
     let mut deserializer = serde_json::Deserializer::new(SliceRead::new(data));
@@ -194,11 +194,11 @@ impl<'de> serde::de::Visitor<'de> for StrValueSiblingFinderVisitor<'_> {
         // We can't really serialize into RawValue because that makes comparison hard.
         // Instead we serialize into a custom type (easiest).
         while let Some(value) = seq.next_element::<MaybeStr>()? {
-            if let Some(value) = value.0 {
-                if value == self.value {
-                    key = Some(value);
-                    break;
-                }
+            if let Some(value) = value.0
+                && value == self.value
+            {
+                key = Some(value);
+                break;
             }
         }
         let Some(key) = key else {
@@ -212,7 +212,7 @@ impl<'de> serde::de::Visitor<'de> for StrValueSiblingFinderVisitor<'_> {
         };
 
         // Consume the rest
-        while let Some(_) = seq.next_element::<&RawValue>()? {}
+        while seq.next_element::<&RawValue>()?.is_some() {}
 
         Ok(Some(RawPosition { key, value }))
     }
@@ -335,7 +335,7 @@ impl<'de> Visitor<'de> for MaybeStrVisitor {
     where
         A: serde::de::SeqAccess<'de>,
     {
-        while let Some(_) = visitor.next_element::<&RawValue>()? {}
+        while visitor.next_element::<&RawValue>()?.is_some() {}
         Ok(MaybeStr(None))
     }
 
@@ -343,7 +343,7 @@ impl<'de> Visitor<'de> for MaybeStrVisitor {
     where
         A: serde::de::MapAccess<'de>,
     {
-        while let Some(_) = visitor.next_entry::<&RawValue, &RawValue>()? {}
+        while visitor.next_entry::<&RawValue, &RawValue>()?.is_some() {}
         Ok(MaybeStr(None))
     }
 

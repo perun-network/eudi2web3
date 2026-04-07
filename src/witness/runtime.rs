@@ -61,7 +61,7 @@ extern "C" fn circuit_log_message(
     let message = unsafe { CStr::from_ptr(message) };
     let message = message.to_string_lossy();
     let message = message.strip_suffix('\n').unwrap_or(&message);
-    if message.len() > 0 {
+    if !message.is_empty() {
         eprintln!("[{circuit_name}] {message}");
     }
 }

@@ -11,19 +11,14 @@ use sd_jwt_rs::{
 use serde::Deserialize;
 use sha2::Digest as _;
 
+use super::ISSUER_PUBLIC;
+
 const ISSUER_PRIVATE: &[u8] = b"
 -----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWTFfCGljY6aw3Hrt
 kHmPRiazukxPLb6ilpRAewjW8nihRANCAATDskChT+Altkm9X7MI69T3IUmrQU0L
 950IxEzvw/x5BMEINRMrXLBJhqzO9Bm+d6JbqA21YQmd1Kt4RzLJR1W+
 -----END PRIVATE KEY-----
-";
-
-pub const ISSUER_PUBLIC: &[u8] = b"
------BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEw7JAoU/gJbZJvV+zCOvU9yFJq0FN
-C/edCMRM78P8eQTBCDUTK1ywSYaszvQZvneiW6gNtWEJndSreEcyyUdVvg==
------END PUBLIC KEY-----
 ";
 
 fn new_credential(claims: serde_json::Value, sd_strategy: SDStrategy) -> Result<String> {
@@ -100,13 +95,11 @@ pub fn explain(presentation: &str) {
 
         let segment = BASE64_URL_SAFE_NO_PAD.decode(segment).unwrap();
         let segment = String::from_utf8_lossy(&segment);
-        if segment.len() > 0 {
+        if !segment.is_empty() {
             println!("Segment {i}: {segment}");
         }
     }
 }
-
-
 
 // This function roughly showcases how we could implement the "extract a single claim value" with a
 // ZK circuit.
@@ -127,7 +120,7 @@ pub fn explain(presentation: &str) {
 pub fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_json::Value> {
     // We do need the issuer public key from somewhere, and it probably has to be in the public
     // input in some form. Convert it to the right format (there are probably better/more reliable ways)
-    let key = pem::parse(&ISSUER_PUBLIC).unwrap();
+    let key = pem::parse(ISSUER_PUBLIC).unwrap();
     let key = key.contents();
     let key = &key[key.len() - 65..];
 
@@ -144,7 +137,7 @@ pub fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_jso
     // as long as the ZK circuit checks that the key is correct.
     let segments: HashMap<String, &str> = segments
         .filter_map(|s| {
-            if s.len() == 0 {
+            if s.is_empty() {
                 return None;
             }
             let disclosure = BASE64_URL_SAFE_NO_PAD.decode(s).unwrap();

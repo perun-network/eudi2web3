@@ -34,6 +34,7 @@ pub struct MultiuseProver {
     zkey: Key,
 }
 
+#[allow(clippy::large_enum_variant)] // 1840 vs 2544 bytes and we only have one instance
 enum Key {
     Bn254 {
         pkey: ProvingKey<Bn254>,
@@ -203,7 +204,7 @@ impl Key {
         P::ScalarField: From<BigUint>,
         ark_groth16::Proof<P>: From<Proof>,
     {
-        let serialized_inputs: Vec<_> = (&proof.pub_input[1..])
+        let serialized_inputs: Vec<_> = proof.pub_input[1..]
             .iter()
             .map(|v| P::ScalarField::from(v.clone()))
             .collect();

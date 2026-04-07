@@ -14,7 +14,7 @@ use serde_json::json;
 use sha2::Digest as _;
 
 use crate::{
-    AppState, JobNew, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof, pubinput2parsed,
+    AppState, Job, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof, pubinput2parsed,
 };
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
@@ -54,9 +54,9 @@ async fn submit_data(
     // > MUST be a hash and match the hash of the leaf certificate passed with the request. [...]
     // > The value of x509_hash is the base64url-encoded value of the SHA-256 hash of the DER-encoded X.509 certificate.
     let x509_hash = sha2::Sha256::digest(certs[0].contents());
-    let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(&x509_hash);
+    let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(x509_hash);
 
-    let id = state.jobs.lock().await.push(JobNew::Partial {
+    let id = state.jobs.lock().await.push(Job::Partial {
         cardano_addr: data.addr,
         publish: data.publish,
     });
@@ -87,7 +87,7 @@ async fn vp_request(Path(id): Path<u64>, Form(w): Form<WalletRequest>) -> impl I
     // > MUST be a hash and match the hash of the leaf certificate passed with the request. [...]
     // > The value of x509_hash is the base64url-encoded value of the SHA-256 hash of the DER-encoded X.509 certificate.
     let x509_hash = sha2::Sha256::digest(certs[0].contents());
-    let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(&x509_hash);
+    let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(x509_hash);
 
     // Encode certificates for the header (we could probably skip the re-encoding by not using the
     // pem dependency).
@@ -194,12 +194,12 @@ async fn vp_auth(
     // twice for example. But it is nonetheless accurate enough for progress bars.
     let pos = state.queue_head.load(Ordering::Relaxed) + state.queue.len() as u64;
     let old = guard.data.get_mut(&id).ok_or(StatusCode::NOT_FOUND)?;
-    let JobNew::Partial { .. } = old else {
+    let Job::Partial { .. } = old else {
         return Err(StatusCode::NOT_FOUND);
     };
-    let mut job = JobNew::Queued { pos };
+    let mut job = Job::Queued { pos };
     std::mem::swap(old, &mut job);
-    let JobNew::Partial {
+    let Job::Partial {
         cardano_addr,
         publish,
     } = job
@@ -263,19 +263,19 @@ async fn job_status(
     let job = guard.data.get(&id).ok_or(StatusCode::NOT_FOUND)?;
     let head = state.queue_head.load(Ordering::Relaxed);
     Ok(Json(match job {
-        JobNew::Partial { .. } => JobStatusResponse::WaitingForVP,
-        JobNew::Queued { pos } => JobStatusResponse::Queued {
+        Job::Partial { .. } => JobStatusResponse::WaitingForVP,
+        Job::Queued { pos } => JobStatusResponse::Queued {
             // These may be slightly off due to a small race condition. Shouldn't matter though, as
             // this is only used for reporting progress in the UI.
             pos: pos - head,
             len: state.queue.len() as u64,
         },
-        JobNew::Completed { proof, tx } => JobStatusResponse::Success {
-            proof: proof.into(),
-            parsed: pubinput2parsed(&proof.pub_input),
-            pub_input: proof.to_snarkjs_pubinput(),
-            tx: tx.map(|tx| format!("0x{}", hex::encode(tx))),
+        Job::Completed(boxed) => JobStatusResponse::Success {
+            proof: (&boxed.proof).into(),
+            parsed: pubinput2parsed(&boxed.proof.pub_input),
+            pub_input: boxed.proof.to_snarkjs_pubinput(),
+            tx: boxed.tx.map(|tx| format!("0x{}", hex::encode(tx))),
         },
-        JobNew::Error(e) => JobStatusResponse::Error(*e),
+        Job::Error(e) => JobStatusResponse::Error(*e),
     }))
 }
