@@ -167,7 +167,7 @@ function setAddressError(message) {
 }
 
 function isValidCardanoAddress(addr) {
-  return /^(addr1|stake1)[0-9a-z]+$/i.test(addr);
+  return /^(addr1|addr_test1|stake1|stake_test1)[0-9a-z]+$/i.test(addr);
 }
 
 function isSafeTxHash(txHash) {
