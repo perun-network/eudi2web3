@@ -49,7 +49,8 @@ pub async fn deploy() {
     submit_tx(tx.tx_bytes.0).await;
 }
 
-pub async fn publish(proof: ProofWithPubInput) {
+// Returns the transaction hash
+pub async fn publish(proof: &ProofWithPubInput) -> [u8; 32] {
     // Could be loaded once in the beginning and reused.
     let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
     let (script_bytes, script_hash) = script_bytecode().await;
@@ -75,9 +76,9 @@ pub async fn publish(proof: ProofWithPubInput) {
                 tag: 0,
                 any_constructor: None,
                 fields: MaybeIndefArray::Def(vec![
-                    PlutusData::BoundedBytes(g1_to_bytes(proof.proof.a).into()),
-                    PlutusData::BoundedBytes(g2_to_bytes(proof.proof.b).into()),
-                    PlutusData::BoundedBytes(g1_to_bytes(proof.proof.c).into()),
+                    PlutusData::BoundedBytes(g1_to_bytes(&proof.proof.a).into()),
+                    PlutusData::BoundedBytes(g2_to_bytes(&proof.proof.b).into()),
+                    PlutusData::BoundedBytes(g1_to_bytes(&proof.proof.c).into()),
                 ]),
             }),
             PlutusData::BoundedBytes(claim_value.into()),
@@ -119,18 +120,20 @@ pub async fn publish(proof: ProofWithPubInput) {
     dbg!(tx.tx_bytes.encode_hex::<String>());
 
     submit_tx(tx.tx_bytes.0).await;
+
+    tx.tx_hash.0
 }
 
 // TODO: I'm not sure if these are in the correct order. We will find out if the proof doesn't
 // verify.
-fn g1_to_bytes(a: G1) -> Vec<u8> {
+fn g1_to_bytes(a: &G1) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(3 * 32);
     bytes.extend(a.x.to_bytes_be());
     bytes.extend(a.y.to_bytes_be());
     bytes.extend(a.z.to_bytes_be());
     bytes
 }
-fn g2_to_bytes(a: G2) -> Vec<u8> {
+fn g2_to_bytes(a: &G2) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(6 * 32);
     bytes.extend(a.x[0].to_bytes_be());
     bytes.extend(a.x[1].to_bytes_be());

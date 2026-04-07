@@ -379,17 +379,22 @@ fn start_workers(
             while let Ok(job) = input.recv() {
                 // We took something out of the queue
                 let res = compute_proof(prover, &job);
-                let proof = match res {
-                    Ok(proof) => proof,
+                match res {
+                    Ok(proof) if job.publish => {
+                        let s = state.clone();
+                        tokio::task::spawn(async move {
+                            publish::cardano::publish(&proof).await;
+                            s.update_job_queued(job.id, JobNew::Completed { proof, tx: None });
+                        });
+                    }
+                    Ok(proof) => {
+                        state.update_job_queued(job.id, JobNew::Completed { proof, tx: None });
+                    }
                     Err(err) => {
                         state.update_job_queued(job.id, JobNew::Error(err));
                         continue;
                     }
                 };
-                if job.publish {
-                    todo!()
-                }
-                state.update_job_queued(job.id, JobNew::Completed { proof, tx: None });
             }
         });
     }
