@@ -38,6 +38,15 @@ fn new_credential(claims: serde_json::Value, sd_strategy: SDStrategy) -> Result<
     )?)
 }
 
+pub fn new_presentation(
+    claims: serde_json::Value,
+    sd_strategy: SDStrategy,
+    claims_to_disclose: serde_json::Map<String, serde_json::Value>,
+) -> Result<String> {
+    let credential = new_credential(claims, sd_strategy)?;
+    to_presentation(credential, claims_to_disclose)
+}
+
 fn to_presentation(
     credential: String,
     claims_to_disclose: serde_json::Map<String, serde_json::Value>,
@@ -48,15 +57,6 @@ fn to_presentation(
         .unwrap();
 
     Ok(presentation)
-}
-
-pub fn new_presentation(
-    claims: serde_json::Value,
-    sd_strategy: SDStrategy,
-    claims_to_disclose: serde_json::Map<String, serde_json::Value>,
-) -> Result<String> {
-    let credential = new_credential(claims, sd_strategy)?;
-    to_presentation(credential, claims_to_disclose)
 }
 
 pub fn verify_presentation_lib(presentation: String) -> Result<serde_json::Value> {
@@ -73,7 +73,6 @@ pub fn verify_presentation_lib(presentation: String) -> Result<serde_json::Value
     Ok(verified_claims)
 }
 
-#[allow(unused)]
 pub fn explain(presentation: &str) {
     let mut segments = presentation.split('~').enumerate();
     let (_, seg0) = segments.next().unwrap();
@@ -106,6 +105,8 @@ pub fn explain(presentation: &str) {
         }
     }
 }
+
+
 
 // This function roughly showcases how we could implement the "extract a single claim value" with a
 // ZK circuit.

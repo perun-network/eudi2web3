@@ -11,7 +11,6 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::cast::ToPrimitive;
 use prover::{MultiuseProver, ProofWithPubInput};
 use serde::Serialize;
-use serde_json::json;
 use sha2::Digest;
 use tokio::net::{TcpListener, UnixListener};
 
@@ -31,6 +30,8 @@ pub mod publish {
 mod keyfinder;
 mod prover;
 mod routes;
+
+#[cfg(test)]
 mod sdjwt;
 
 // Configuration of the circuit (must be the same as in the circom file)
@@ -38,6 +39,13 @@ const MAX_PAYLOAD_BYTES: usize = 4096; // JWT header + '.' + body + sha256 paddi
 const MAX_HEADER_SIZE: usize = 2048; // JWT header
 const MAX_VALUE_BYTES: usize = 64; // Output value
 const MAX_SD_BYTES: usize = 256;
+
+pub const ISSUER_PUBLIC: &[u8] = b"
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEw7JAoU/gJbZJvV+zCOvU9yFJq0FN
+C/edCMRM78P8eQTBCDUTK1ywSYaszvQZvneiW6gNtWEJndSreEcyyUdVvg==
+-----END PUBLIC KEY-----
+";
 
 #[derive(Debug)]
 struct CircuitInput {
@@ -278,11 +286,6 @@ struct AppState {
     pub queue_head: AtomicU64,
 }
 
-#[derive(Debug, Default)]
-struct Inner {
-    pub lookup: HashMapAutokey<JobNew>,
-}
-
 #[derive(Debug)]
 struct HashMapAutokey<T> {
     data: HashMap<u64, T>,
@@ -323,7 +326,7 @@ enum JobNew {
     },
     Completed {
         proof: ProofWithPubInput,
-        tx: Option<String>,
+        tx: Option<[u8; 32]>,
     },
     Error(UserError),
 }
@@ -377,14 +380,17 @@ fn start_workers(
         let state = state.clone();
         std::thread::spawn(move || {
             while let Ok(job) = input.recv() {
-                // We took something out of the queue
+                let t0 = Instant::now();
                 let res = compute_proof(prover, &job);
+                print_execution_time("compute_proof finished", t0);
                 match res {
                     Ok(proof) if job.publish => {
                         let s = state.clone();
                         tokio::task::spawn(async move {
-                            publish::cardano::publish(&proof).await;
-                            s.update_job_queued(job.id, JobNew::Completed { proof, tx: None });
+                            let t0 = Instant::now();
+                            let tx = Some(publish::cardano::publish(&proof).await);
+                            print_execution_time("cardano::publish finished", t0);
+                            s.update_job_queued(job.id, JobNew::Completed { proof, tx });
                         });
                     }
                     Ok(proof) => {
@@ -401,11 +407,13 @@ fn start_workers(
 }
 
 fn compute_proof(prover: &MultiuseProver, job: &QueuedJob) -> Result<ProofWithPubInput, UserError> {
+    // TODO: The user address should be part of the (public) zk input, otherwise someone could Just
+    // copy the proof and use it for their own address.
     dbg!(&job);
 
     // TODO: We need to use the correct issuer (e.g. allow multiple)
     // We test with hard coded issuer public key. In the long run this likely gets more complex.
-    let issuer_pk = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
+    let issuer_pk = pem::parse(&ISSUER_PUBLIC).unwrap();
     let issuer_pk = issuer_pk.contents();
     let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
     assert_eq!(issuer_pk[0], 0x04);
@@ -463,109 +471,6 @@ impl AppState {
             None => println!("WARN: update_job_queued: Job does not exist"),
         }
     }
-}
-
-fn proof_gen_test() {
-    // Create a credential for testing
-    let claims = json!({
-        "sub": "6c5c0a49-b589-431d-bae7-219122a9ec2c",
-        "iss": "https://example.com/issuer",
-        "iat": 1683000000,
-        "exp": 1883000000,
-        "address": {
-            "street_address": "Schulstr. 12",
-            "locality": "Schulpforta",
-            "region": "Sachsen-Anhalt",
-            "country": "DE"
-        },
-        "birthdate": "1940-01-01",
-        "given_name": "foobar",
-        "foo": "bar",
-        "baz": {
-            "hello": "world"
-        }
-    });
-    let sd_strategy = sd_jwt_rs::ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.given_name"]);
-    let serde_json::Value::Object(claims_to_disclose) = json!({
-        // "address": {
-        //     "region": true,
-        //     "country": true
-        // },
-        "given_name": true,
-    }) else {
-        unreachable!()
-    };
-    let presentation = sdjwt::new_presentation(claims, sd_strategy, claims_to_disclose).unwrap();
-
-    sdjwt::explain(&presentation);
-    println!("{}", "-".repeat(100));
-
-    // Just checking correctness (of the presentation and the claim extraction algorithm)
-    sdjwt::verify_presentation_lib(presentation.clone()).unwrap();
-    sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
-
-    // Setup prover and load key material
-    println!("Loading zkey ...");
-    let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
-    let t0 = Instant::now();
-    let prover = MultiuseProver::new(zkey_path).unwrap();
-    print_execution_time("ZKey loading finished", t0);
-
-    // We test with hard coded issuer public key. In the long run this likely gets more complex.
-    let issuer_pk = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
-    let issuer_pk = issuer_pk.contents();
-    let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
-    assert_eq!(issuer_pk[0], 0x04);
-    let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
-
-    // Build the input
-    let t0 = Instant::now();
-    let input = presentation2input(&presentation, issuer_pk).unwrap();
-    let input = [
-        ("in".to_owned(), input.input),
-        ("value".to_owned(), input.value),
-    ];
-    print_execution_time("Input preparation finished", t0);
-
-    let input_str = input
-        .iter()
-        .map(|(k, v)| (k, v.iter().map(|n| n.to_string()).collect::<Vec<String>>()))
-        .collect::<std::collections::HashMap<_, _>>();
-    let input_str = serde_json::to_string(&input_str).unwrap();
-    std::fs::write("input.json", input_str).unwrap();
-
-    println!("INFO: Generating witness ...");
-    let t0 = Instant::now();
-    let wit = witness::sdjwtes256sha2561claim_witness(input);
-    print_execution_time("Witness generation finished", t0);
-
-    println!("INFO: Generating proof ...");
-    let t0 = Instant::now();
-    let proof = prover.prove_noverify(wit).unwrap();
-    print_execution_time("Proof generation finished", t0);
-
-    println!("INFO: Verifying proof ...");
-    let t0 = Instant::now();
-    let valid = prover.verify(&proof).unwrap();
-    print_execution_time("Proof verification finished", t0);
-
-    // Print the output in a more useful form
-    let pub_input_bytes: Vec<u8> = proof
-        .pub_input
-        .iter()
-        .skip(1)
-        .take(MAX_VALUE_BYTES)
-        .map(|v| v.try_into().unwrap_or(255))
-        .collect();
-    let pub_input_str = String::from_utf8_lossy(&pub_input_bytes);
-    println!("Value (from pub_input): {pub_input_str}");
-    if valid {
-        println!("Proof is valid");
-    } else {
-        println!("Proof is NOT valid");
-    }
-
-    assert!(valid);
 }
 
 fn print_execution_time(msg: &str, start: Instant) {
@@ -649,4 +554,123 @@ fn zeropad_str(s: &str, len: usize) -> Vec<BigInt> {
         out[i] = (*b).into()
     }
     out
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Instant;
+
+    use crate::{
+        MAX_VALUE_BYTES, presentation2input, print_execution_time, prover::MultiuseProver, sdjwt,
+        witness,
+    };
+    use serde_json::json;
+
+    // This code comes from MS1
+    #[test]
+    #[cfg_attr(not(feature = "slow-tests"), ignore)]
+    fn compute_proof_using_generated_credential() {
+        // Create a credential for testing
+        let claims = json!({
+            "sub": "6c5c0a49-b589-431d-bae7-219122a9ec2c",
+            "iss": "https://example.com/issuer",
+            "iat": 1683000000,
+            "exp": 1883000000,
+            "address": {
+                "street_address": "Schulstr. 12",
+                "locality": "Schulpforta",
+                "region": "Sachsen-Anhalt",
+                "country": "DE"
+            },
+            "birthdate": "1940-01-01",
+            "given_name": "foobar",
+            "foo": "bar",
+            "baz": {
+                "hello": "world"
+            }
+        });
+        let sd_strategy =
+            sd_jwt_rs::ClaimsForSelectiveDisclosureStrategy::Custom(vec!["$.given_name"]);
+        let serde_json::Value::Object(claims_to_disclose) = json!({
+            // "address": {
+            //     "region": true,
+            //     "country": true
+            // },
+            "given_name": true,
+        }) else {
+            unreachable!()
+        };
+        let presentation =
+            sdjwt::new_presentation(claims, sd_strategy, claims_to_disclose).unwrap();
+
+        sdjwt::explain(&presentation);
+        println!("{}", "-".repeat(100));
+
+        // Just checking correctness (of the presentation and the claim extraction algorithm)
+        sdjwt::verify_presentation_lib(presentation.clone()).unwrap();
+        sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
+
+        // Setup prover and load key material
+        println!("Loading zkey ...");
+        let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
+        let t0 = Instant::now();
+        let prover = MultiuseProver::new(zkey_path).unwrap();
+        print_execution_time("ZKey loading finished", t0);
+
+        // We test with hard coded issuer public key. In the long run this likely gets more complex.
+        let issuer_pk = pem::parse(&crate::sdjwt::ISSUER_PUBLIC).unwrap();
+        let issuer_pk = issuer_pk.contents();
+        let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
+        assert_eq!(issuer_pk[0], 0x04);
+        let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
+
+        // Build the input
+        let t0 = Instant::now();
+        let input = presentation2input(&presentation, issuer_pk).unwrap();
+        let input = [
+            ("in".to_owned(), input.input),
+            ("value".to_owned(), input.value),
+        ];
+        print_execution_time("Input preparation finished", t0);
+
+        let input_str = input
+            .iter()
+            .map(|(k, v)| (k, v.iter().map(|n| n.to_string()).collect::<Vec<String>>()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let input_str = serde_json::to_string(&input_str).unwrap();
+        std::fs::write("input.json", input_str).unwrap();
+
+        println!("INFO: Generating witness ...");
+        let t0 = Instant::now();
+        let wit = witness::sdjwtes256sha2561claim_witness(input);
+        print_execution_time("Witness generation finished", t0);
+
+        println!("INFO: Generating proof ...");
+        let t0 = Instant::now();
+        let proof = prover.prove_noverify(wit).unwrap();
+        print_execution_time("Proof generation finished", t0);
+
+        println!("INFO: Verifying proof ...");
+        let t0 = Instant::now();
+        let valid = prover.verify(&proof).unwrap();
+        print_execution_time("Proof verification finished", t0);
+
+        // Print the output in a more useful form
+        let pub_input_bytes: Vec<u8> = proof
+            .pub_input
+            .iter()
+            .skip(1)
+            .take(MAX_VALUE_BYTES)
+            .map(|v| v.try_into().unwrap_or(255))
+            .collect();
+        let pub_input_str = String::from_utf8_lossy(&pub_input_bytes);
+        println!("Value (from pub_input): {pub_input_str}");
+        if valid {
+            println!("Proof is valid");
+        } else {
+            println!("Proof is NOT valid");
+        }
+
+        assert!(valid);
+    }
 }

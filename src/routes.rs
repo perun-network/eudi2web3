@@ -274,7 +274,7 @@ async fn job_status(
             proof: proof.into(),
             parsed: pubinput2parsed(&proof.pub_input),
             pub_input: proof.to_snarkjs_pubinput(),
-            tx: tx.clone(),
+            tx: tx.map(|tx| format!("0x{}", hex::encode(tx))),
         },
         JobNew::Error(e) => JobStatusResponse::Error(*e),
     }))

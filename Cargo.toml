@@ -54,3 +54,6 @@ pallas-crypto = "0.35.0"
 [build-dependencies]
 cc = { version = "1.2.55", features = ["parallel"] }
 walkdir = "2.5.0"
+
+[features]
+slow-tests = []
