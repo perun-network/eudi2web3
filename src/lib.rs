@@ -376,6 +376,7 @@ fn start_workers(
     for _ in 0..workers.into() {
         let input = input.clone();
         let state = state.clone();
+        let rt = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
             while let Ok(job) = input.recv() {
                 let t0 = Instant::now();
@@ -384,7 +385,7 @@ fn start_workers(
                 match res {
                     Ok(proof) if job.publish => {
                         let s = state.clone();
-                        tokio::task::spawn(async move {
+                        rt.spawn(async move {
                             let t0 = Instant::now();
                             let tx = Some(publish::cardano::publish(&proof).await);
                             print_execution_time("cardano::publish finished", t0);
