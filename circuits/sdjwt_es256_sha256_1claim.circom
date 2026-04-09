@@ -124,7 +124,7 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, sd_depth, sdbytes, path_depth)
         );
         assert(valid);
         valid === 1;
-}
+    }
 
     // We are looking for a json key-value pair: `"key":.*[,}\]]` inside the base64.
     // The base64 decoder we currently have is not sha2 padding aware, so we should
