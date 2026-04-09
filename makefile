@@ -49,7 +49,7 @@ zkey/%.zkey: zkey/%.r1cs
 	# Very important step for security. Can be skipped during development but without this the whole proof system is insecure.
 	# See https://rekt.news/default-settings
 	# See https://blog.zksecurity.xyz/posts/groth16-setup-exploit/
-	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs zkey contribute zkey/%-insecure.zkey $@
+	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs zkey contribute zkey/$%-insecure.zkey $@
 	rm zkey/%-insecure.zkey
 
 zkey/%.vkey.json: zkey/%.zkey
