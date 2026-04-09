@@ -1,4 +1,5 @@
 CIRCOM_SRC := $(shell find circuits -type d -name 'test*' -prune -o -type f -name '*.circom' -print)
+AK_FILES := $(wildcard verifier/cardano/validators/*.ak)
 SHELL := /usr/bin/env bash
 
 .PHONY: bn254 .bls12381 r1cs r1cs-bls12381 init
@@ -11,7 +12,7 @@ bn254: CURVE = bn128 # circom uses a different naming scheme
 bn254: zkey/.curve-bn254 zkey/sdjwt_es256_sha256_1claim.r1cs zkey/sdjwt_es256_sha256_1claim.zkey
 
 # I haven't generated a large enough ptau file yet, so for testing this curve I'm using a smaller one
-bls12381: PTAU = ptau/bls12381_14.ptau
+bls12381: PTAU = ptau/bls12381_22.ptau
 bls12381: CURVE = bls12381
 bls12381: zkey/.curve-bls12381 zkey/sdjwt_es256_sha256_1claim.r1cs zkey/sdjwt_es256_sha256_1claim.zkey
 
@@ -36,6 +37,10 @@ clean:
 	rm -r zkey/*
 
 # bls12381: zkey/.curve-bls12381 zkey/sdjwt_es256_sha256_1claim.zkey
+
+##########
+# Circom #
+##########
 
 zkey/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
 	@echo -e "\x1b[96mCompiling $*\x1b[0m"
@@ -71,10 +76,28 @@ ptau/bn254_%.ptau:
 
 # I could not find a good source for a bls12-381 ptau file that is large enough, so we have to generate it (will take a long time).
 ptau/bls12381_%.ptau:
-	time snarkjs powersoftau new bls12381 $* $@
-	time snarkjs powersoftau contribute $@ $@.tmp --name="first"
+	time snarkjs -v powersoftau new bls12381 $* $@
+	time snarkjs -v powersoftau contribute $@ $@.tmp --name="first"
 	# 4 sections: tauG1, tauG2, alphaTauG1, betaTauG1
 	# Each section goes up to fft PTAU
-	time snarkjs powersoftau prepare phase2 $@.tmp $@ -v
+	time snarkjs -v powersoftau prepare phase2 $@.tmp $@ -v
 	rm $@.tmp
+
+###########
+# CARDANO #
+###########
+
+me.sk me.vk &:
+	rm me.addr
+	cardano-cli address key-gen --verification-key-file me.vk --signing-key-file me.sk
+
+me.addr: me.vk
+	cardano-cli conway address build --testnet-magic 2 --payment-verification-key-file me.vk > me.addr
+
+verifier/cardano/plutus.json: $(AK_FILES)
+	(cd verifier/cardano && aiken build)
+
+verifier/cardano/%.script: verifier/cardano/plutus.json
+	PARAMS_CBOR=$(cargo run --bin vkey2cardano)
+	aiken blueprint apply -i $< -o $@ -m $* &(PARAMS_CBOR)
 
