@@ -97,7 +97,13 @@ me.addr: me.vk
 verifier/cardano/plutus.json: $(AK_FILES)
 	(cd verifier/cardano && aiken build)
 
-verifier/cardano/%.script: verifier/cardano/plutus.json
-	PARAMS_CBOR=$(cargo run --bin vkey2cardano)
-	aiken blueprint apply -i $< -o $@ -m $* &(PARAMS_CBOR)
+# Examples: zkey/minimal.eudi2web3.cardano.script
+zkey/%.eudi2web3_demo.cardano.script: verifier/cardano/plutus.json zkey/%.vkey.json
+	STEM=$*; aiken blueprint apply -i $< -o $@ -m eudi2web3_demo \
+		"$$(cargo run --bin vkey2cardano -- zkey/$*.vkey.json)"
+
+# Alternative option, but it is more complex and doesn't properly track the vkey.
+# zkey/%.cardano.script: verifier/cardano/plutus.json
+# 	STEM=$*; aiken blueprint apply -i $< -o $@ -m $${STEM#*.} \
+# 		"$$(cargo run --bin vkey2cardano -- zkey/$${STEM%%.*}.vkey.json)"
 
