@@ -1,6 +1,6 @@
+use ark_serialize::CanonicalSerialize;
 use circom_prover::prover::circom::{G1, G2};
 use hex::ToHex;
-use num_bigint::BigUint;
 use pallas_primitives::{Constr, Fragment, MaybeIndefArray, NetworkId, PlutusData};
 use pallas_txbuilder::{
     BuildConway, ExUnits, Input, Output, ScriptKind::PlutusV3, StagingTransaction,
@@ -140,9 +140,9 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
                 tag: TAG_CONSTR_0,
                 any_constructor: None,
                 fields: MaybeIndefArray::Def(vec![
-                    PlutusData::BoundedBytes(g1_to_bytes(&proof.proof.a).into()),
-                    PlutusData::BoundedBytes(g2_to_bytes(&proof.proof.b).into()),
-                    PlutusData::BoundedBytes(g1_to_bytes(&proof.proof.c).into()),
+                    PlutusData::BoundedBytes(bls_g1_to_bytes(&proof.proof.a).into()),
+                    PlutusData::BoundedBytes(bls_g2_to_bytes(&proof.proof.b).into()),
+                    PlutusData::BoundedBytes(bls_g1_to_bytes(&proof.proof.c).into()),
                 ]),
             }),
             PlutusData::BoundedBytes(claim_value.into()),
@@ -150,39 +150,19 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     })
 }
 
-// TODO: I'm not sure if these are in the correct order. We will find out if the proof doesn't
-// verify.
-fn g1_to_bytes(a: &G1) -> Vec<u8> {
-    // to_bytes_be isn't guaranteed to return 32 bytes, so we need to pad accordingly.
+fn bls_g1_to_bytes(a: &G1) -> Vec<u8> {
+    let a: ark_bls12_381::G1Projective = a.clone().to_bls12_381().into();
     let mut bytes = Vec::with_capacity(3 * 32);
-    push_u256_be(&mut bytes, &a.x);
-    push_u256_be(&mut bytes, &a.y);
-    push_u256_be(&mut bytes, &a.z);
+    a.serialize_uncompressed(&mut bytes).unwrap();
+    debug_assert_eq!(bytes.len(), 3 * 32);
     bytes
 }
-fn g2_to_bytes(a: &G2) -> Vec<u8> {
+fn bls_g2_to_bytes(a: &G2) -> Vec<u8> {
+    let a: ark_bls12_381::G2Projective = a.clone().to_bls12_381().into();
     let mut bytes = Vec::with_capacity(6 * 32);
-    push_u256_be(&mut bytes, &a.x[0]);
-    push_u256_be(&mut bytes, &a.x[1]);
-    push_u256_be(&mut bytes, &a.y[0]);
-    push_u256_be(&mut bytes, &a.y[1]);
-    push_u256_be(&mut bytes, &a.z[0]);
-    push_u256_be(&mut bytes, &a.z[1]);
+    a.serialize_uncompressed(&mut bytes).unwrap();
+    debug_assert_eq!(bytes.len(), 6 * 32);
     bytes
-}
-
-/// Appends 32 bytes to `out` that contain the big-endian of num.
-///
-/// # Panicks
-/// Panicks if num does not fit into 32 bytes.
-fn push_u256_be(out: &mut Vec<u8>, num: &BigUint) {
-    // Use little endian, as big endian just calls that and reverses the Vec, too.
-    let num_bytes = num.to_bytes_be();
-    assert!(num_bytes.len() <= 32);
-    for _ in num_bytes.len()..32 {
-        out.push(0);
-    }
-    out.extend(num_bytes);
 }
 
 #[derive(Deserialize)]
@@ -395,12 +375,29 @@ async fn submit_tx(cbor: Vec<u8>) {
 
 #[cfg(test)]
 mod test {
+    use ark_ff::UniformRand;
     use circom_prover::prover::circom::{G1, G2, Proof};
     use num_bigint::BigUint;
     use pallas_primitives::{Fragment, PlutusData};
 
     use super::*;
     use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
+
+    // This test is very basic and just checks the output length.
+    #[test]
+    fn g1_encoding_len() {
+        let a = ark_bls12_381::G1Affine::rand(&mut rand::thread_rng());
+        let a = G1::from_bls12_381(&a);
+        let bytes = super::bls_g1_to_bytes(&a);
+        assert_eq!(bytes.len(), 3 * 32);
+    }
+    #[test]
+    fn g2_encoding_len() {
+        let a = ark_bls12_381::G2Affine::rand(&mut rand::thread_rng());
+        let a = G2::from_bls12_381(&a);
+        let bytes = super::bls_g2_to_bytes(&a);
+        assert_eq!(bytes.len(), 6 * 32);
+    }
 
     #[test]
     fn redeemer_encoding_roundtrip() {
