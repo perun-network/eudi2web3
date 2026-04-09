@@ -38,9 +38,9 @@ clean:
 
 # bls12381: zkey/.curve-bls12381 zkey/sdjwt_es256_sha256_1claim.zkey
 
-##########
-# Circom #
-##########
+####################
+# Circom + snarkjs #
+####################
 
 zkey/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
 	@echo -e "\x1b[96mCompiling $*\x1b[0m"
@@ -50,12 +50,12 @@ zkey/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
 zkey/%.zkey: zkey/%.r1cs
 	$(MAKE) $(PTAU)
 	@echo -e "\x1b[96mCircuit specific setup $*\x1b[0m"
-	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs groth16 setup $< $(PTAU) zkey/%-insecure.zkey
+	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs groth16 setup $< $(PTAU) zkey/$*-insecure.zkey
 	# Very important step for security. Can be skipped during development but without this the whole proof system is insecure.
 	# See https://rekt.news/default-settings
 	# See https://blog.zksecurity.xyz/posts/groth16-setup-exploit/
-	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs zkey contribute zkey/$%-insecure.zkey $@
-	rm zkey/%-insecure.zkey
+	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs zkey contribute zkey/$*-insecure.zkey $@
+	rm zkey/$*-insecure.zkey
 
 zkey/%.vkey.json: zkey/%.zkey
 	snarkjs zkey export verificationkey $< $@
