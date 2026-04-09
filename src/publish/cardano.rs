@@ -11,21 +11,28 @@ use serde::Deserialize;
 use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
 
 const BLOCKFROST_URL: &str = "https://cardano-preview.blockfrost.io/api/v0";
+const SCRIPT_VERSION: u8 = 3;
 
 // TODO: This file contains a bunch of methods using unwrap instead of having proper error
 // forwarding or retries.
 
-pub async fn deploy() {
+pub async fn deploy(path: &str) {
     // Could be loaded once in the beginning and reused.
     let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
-    let (script_bytes, script_hash) = script_bytecode().await;
+    let (script_bytes, script_hash) = script_bytecode(path).await;
+    // let script_hash = script_hash(&script_bytes, SCRIPT_VERSION);
 
-    let fee = 200_000;
-    let min_balance = 4_000_000;
+    let fee = 400_000;
+    let min_balance = 20_000_000;
 
     // Use the first UTXO we have as input
     let utxos = get_utxos(&addr).await;
-    let input = select_utxo_deployment(&utxos, &script_hash, 2 * min_balance + fee);
+    let (s_input, input) = select_utxo(&utxos, &script_hash, 2 * min_balance + fee);
+
+    if s_input.is_some() {
+        eprintln!("Script already deployed, doing nothing");
+        return;
+    }
     let addr = pallas_addresses::Address::from_bech32(&addr).unwrap();
 
     let tx = StagingTransaction::new()
@@ -55,17 +62,18 @@ pub async fn deploy() {
     submit_tx(tx.tx_bytes.0).await;
 }
 
-pub async fn publish(proof: &ProofWithPubInput) -> [u8; 32] {
+pub async fn publish(script_path: &str, proof: &ProofWithPubInput) -> [u8; 32] {
     let redeemer = encode_redeemer(proof);
     dbg!(hex::encode(&redeemer));
-    publish_inner(redeemer).await
+    publish_inner(script_path, redeemer).await
 }
 
 // Returns the transaction hash
-async fn publish_inner(redeemer: Vec<u8>) -> [u8; 32] {
+async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     // Could be loaded once in the beginning and reused.
     let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
-    let (script_bytes, script_hash) = script_bytecode().await;
+    let (script_bytes, script_hash) = script_bytecode(script_path).await;
+    // let script_hash = script_hash(&script_bytes, SCRIPT_VERSION);
 
     // Build inputs
 
@@ -74,7 +82,8 @@ async fn publish_inner(redeemer: Vec<u8>) -> [u8; 32] {
 
     // Use the first UTXO we have as input
     let utxos = get_utxos(&addr).await;
-    let (input_script, input_fees) = select_utxo_publish(&utxos, &script_hash, fee + min_balance);
+    let (input_script, input_fees) = select_utxo(&utxos, &script_hash, fee + min_balance);
+    let input_script = input_script.expect("Script not found");
     let addr = pallas_addresses::Address::from_bech32(&addr).unwrap();
 
     // Build transaction
@@ -150,6 +159,7 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     })
 }
 
+// TODO: Wrong format
 fn bls_g1_to_bytes(a: &G1) -> Vec<u8> {
     let a: ark_bls12_381::G1Projective = a.clone().to_bls12_381().into();
     let mut bytes = Vec::with_capacity(3 * 32);
@@ -177,16 +187,29 @@ struct Validator {
 }
 
 // Additionally returns hex(hash).
-async fn script_bytecode() -> (Vec<u8>, String) {
-    let json = tokio::fs::read_to_string("verifier/cardano/plutus.json")
-        .await
-        .unwrap();
+async fn script_bytecode(path: &str) -> (Vec<u8>, String) {
+    let json = tokio::fs::read_to_string(path).await.unwrap();
     let plutus_json: PlutusJson = serde_json::from_str(&json).unwrap();
     let data = plutus_json.validators.into_iter().next().unwrap();
     let script = hex::decode(&data.compiled_code).expect("invalid hex");
 
     (script, data.hash)
 }
+
+// async fn script_bytecode(path: &str) -> Vec<u8> {
+//     let script = tokio::fs::read_to_string(path).await.unwrap();
+//     hex::decode(&script).expect("invalid hex")
+// }
+//
+// fn script_hash(script: &[u8], plutus_version: u8) -> String {
+//     type Blake2b224 = Blake2b<blake2::digest::consts::U28>;
+//
+//     let mut hasher = Blake2b224::new();
+//     hasher.update([plutus_version]);
+//     hasher.update(script);
+//     let hash = hasher.finalize();
+//     hex::encode(hash)
+// }
 
 #[derive(Deserialize)]
 struct SecretKeyContainer {
@@ -260,41 +283,11 @@ async fn get_utxos(addr: &str) -> Vec<Utxo> {
         .unwrap()
 }
 
-fn select_utxo_deployment<'a>(utxos: &'a [Utxo], script_hash: &str, min_balance: u64) -> &'a Utxo {
-    // First check if it is already deployed and abort if it is.
-    let deployed = utxos
-        .iter()
-        .find(|u| u.reference_script_hash.as_deref() == Some(script_hash));
-    assert!(
-        deployed.is_none(),
-        "Account already has a UTXO with the script"
-    );
-
-    // Otherwise take utxos without a script until we have the desired balance.
-    for u in utxos {
-        assert_eq!(
-            u.amount.len(),
-            1,
-            "Our code currently doesn't support utxos with multiple currencies"
-        );
-        if u.amount[0].unit != "lovelace" {
-            continue;
-        }
-        if u.reference_script_hash.is_some() {
-            continue;
-        }
-        if u.amount[0].quantity.parse::<u64>().unwrap() >= min_balance {
-            return u;
-        }
-    }
-    panic!("Insufficient funds")
-}
-
-fn select_utxo_publish<'a>(
+fn select_utxo<'a>(
     utxos: &'a [Utxo],
     script_hash: &str,
     min_balance: u64,
-) -> (&'a Utxo, &'a Utxo) {
+) -> (Option<&'a Utxo>, &'a Utxo) {
     let script = utxos
         .iter()
         .find(|u| u.reference_script_hash.as_deref() == Some(script_hash));
@@ -303,9 +296,6 @@ fn select_utxo_publish<'a>(
             && u.amount[0].unit == "lovelace"
             && u.amount[0].quantity.parse::<u64>().unwrap() >= min_balance
     });
-    let Some(script) = script else {
-        panic!("Script not found");
-    };
     let Some(fee_payer) = fee_payer else {
         panic!("Insufficient funds");
     };
@@ -381,7 +371,10 @@ mod test {
     use pallas_primitives::{Fragment, PlutusData};
 
     use super::*;
-    use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
+    use crate::{
+        MAX_VALUE_BYTES,
+        prover::{MultiuseProver, ProofWithPubInput},
+    };
 
     // This test is very basic and just checks the output length.
     #[test]
@@ -441,45 +434,21 @@ mod test {
     }
 
     #[tokio::test]
-    async fn eval_execution() {
-        // Generated by running the project with `dbg!(hex::encode(&redeemer));` in publish.
-        let redeemer = hex::decode("d87982d879835f584008fffc3c784baebc90dc8b53c54c5df4cd22809da26b210f1e7473abb857cc252ccf30baf5a778305fcab756ac85e0eaf82c146534ae02e85d08933a64e3a76958200000000000000000000000000000000000000000000000000000000000000001ff5f584002bc44150398c624c333abf8401661159cf7a6843468cd95439c0411019fae1a01891603c5e26e592adfc4c9dddb3b0e6aaa78ce5a8f51663a1a2e671af00552584028df7cea046fcd5589a44e867672c0484595c394f159a6205f91da576f533fab08ac5ff0ed8a8fc4beb2c5aff94311a7d0a08e65a72cbd598465f6caf23fd93d584000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000ff5f5840273c104cf16d20ebc0fa910e925592fb5731bacf1caaf6a036b51da2d64e9c811d6b8fdb66d2dd4839713c337831d6f9ed3838efdb9e96ff30fb9585fa803e3658200000000000000000000000000000000000000000000000000000000000000001ff58402022666f6f6261723822000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap();
+    async fn e2e_minimal() {
+        super::deploy("zkey/minimal.eudi2web3_demo.cardano.script").await;
 
-        // Sanity check
-        let data = PlutusData::decode_fragment(&redeemer).expect("Decoding should not fail");
-        dbg!(data);
+        let mut wtns = Vec::with_capacity(1 + MAX_VALUE_BYTES);
+        wtns.push(1.into());
+        for i in 0..MAX_VALUE_BYTES {
+            wtns.push((65 + i).into());
+        }
 
-        let tx_hash = publish_inner(redeemer).await;
-        dbg!(hex::encode(tx_hash));
+        let prover = MultiuseProver::new("zkey/minimal.zkey").unwrap();
+        let (proof, valid) = prover.prove(wtns).unwrap();
+        assert!(valid);
 
-        // let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
-        // let (script_bytes, script_hash) = script_bytecode().await;
-        //
-        // let fee = 200_000;
-        // let min_balance = 4_000_000;
-        //
-        // // Use the first UTXO we have as input
-        // let utxos = get_utxos(&addr).await;
-        // let (input_script, input_fees) =
-        //     select_utxo_publish(&utxos, &script_hash, fee + min_balance);
-        // let addr = pallas_addresses::Address::from_bech32(&addr).unwrap();
-        //
-        // let tx = StagingTransaction::new()
-        //     .network_id(NetworkId::Testnet.into())
-        //     .input(input_script.to_input())
-        //     .input(input_fees.to_input())
-        //     .output(Output::new(
-        //         addr.clone(),
-        //         input_fees.lovelace_balance() - fee,
-        //     ))
-        //     .output(
-        //         Output::new(addr, input_script.lovelace_balance())
-        //             .set_inline_script(PlutusV3, script_bytes)
-        //             .set_inline_datum(vec![0xd8, 0x79, 0x80]),
-        //     )
-        //     .fee(fee);
-        //
-        // let ex_units = eval_execution_units(&tx, input_script.to_input(), redeemer).await;
-        // dbg!(&ex_units);
+        let tx_hash = super::publish("zkey/minimal.eudi2web3_demo.cardano.script", &proof).await;
+        dbg!(tx_hash.encode_hex::<String>());
+        // TODO: We may need to check if the txn succeeded.
     }
 }

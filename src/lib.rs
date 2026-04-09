@@ -34,6 +34,8 @@ mod routes;
 #[cfg(test)]
 mod sdjwt;
 
+const SCRIPT_PATH: &str = "zkey/sdjwt_es256_sha256_1claim-eudi2web3_demo.cardano.script";
+
 // Configuration of the circuit (must be the same as in the circom file)
 const MAX_PAYLOAD_BYTES: usize = 4096; // JWT header + '.' + body + sha256 padding
 const MAX_HEADER_SIZE: usize = 2048; // JWT header
@@ -387,7 +389,7 @@ fn start_workers(
                         let s = state.clone();
                         rt.spawn(async move {
                             let t0 = Instant::now();
-                            let tx = Some(publish::cardano::publish(&proof).await);
+                            let tx = Some(publish::cardano::publish(SCRIPT_PATH, &proof).await);
                             print_execution_time("cardano::publish finished", t0);
                             s.update_job_queued(
                                 job.id,
