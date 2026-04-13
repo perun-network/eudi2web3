@@ -56,4 +56,7 @@ cc = { version = "1.2.55", features = ["parallel"] }
 walkdir = "2.5.0"
 
 [features]
-slow-tests = []
+all-tests = ["slow-tests", "cardano-tests"]
+slow-tests = []     # Mainly the ones involving larger zk proofs
+cardano-tests = []  # Requires BLOCKFROST_KEY env-var and me.sk with testnet funds
+
