@@ -1,17 +1,18 @@
-use ark_serialize::CanonicalSerialize;
 use circom_prover::prover::circom::{G1, G2};
-use hex::ToHex;
+use hex::{FromHex, ToHex};
+use num_traits::Zero;
+use pallas_addresses::{ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart};
 use pallas_primitives::{Constr, Fragment, MaybeIndefArray, NetworkId, PlutusData};
 use pallas_txbuilder::{
     BuildConway, ExUnits, Input, Output, ScriptKind::PlutusV3, StagingTransaction,
 };
 use pallas_wallet::PrivateKey;
+use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
 
 const BLOCKFROST_URL: &str = "https://cardano-preview.blockfrost.io/api/v0";
-const SCRIPT_VERSION: u8 = 3;
 
 // TODO: This file contains a bunch of methods using unwrap instead of having proper error
 // forwarding or retries.
@@ -19,20 +20,22 @@ const SCRIPT_VERSION: u8 = 3;
 pub async fn deploy(path: &str) {
     // Could be loaded once in the beginning and reused.
     let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
-    let (script_bytes, script_hash) = script_bytecode(path).await;
-    // let script_hash = script_hash(&script_bytes, SCRIPT_VERSION);
+    let (script_bytes, _, script_addr) = script_bytecode(path).await;
 
     let fee = 400_000;
     let min_balance = 20_000_000;
+    let locked = 900_000;
 
-    // Use the first UTXO we have as input
-    let utxos = get_utxos(&addr).await;
-    let (s_input, input) = select_utxo(&utxos, &script_hash, 2 * min_balance + fee);
-
-    if s_input.is_some() {
+    let script_utxos = get_utxos(&script_addr.to_bech32().unwrap()).await;
+    if script_utxos.len() >= 1 {
         eprintln!("Script already deployed, doing nothing");
         return;
     }
+
+    // Use the first UTXO we have as input
+    let utxos = get_utxos(&addr).await;
+    let input = select_utxo(&utxos, min_balance + fee);
+
     let addr = pallas_addresses::Address::from_bech32(&addr).unwrap();
 
     let tx = StagingTransaction::new()
@@ -40,12 +43,15 @@ pub async fn deploy(path: &str) {
         .input(input.to_input())
         .output(Output::new(
             addr.clone(),
-            input.lovelace_balance() - fee - min_balance,
+            input.lovelace_balance() - fee - min_balance - locked,
         ))
         .output(
-            Output::new(addr, min_balance)
+            Output::new(script_addr.clone(), min_balance)
                 .set_inline_script(PlutusV3, script_bytes)
                 .set_inline_datum(vec![0xd8, 0x79, 0x80]), // Constr 0, empty array
+        )
+        .output(
+            Output::new(script_addr, locked).set_inline_datum(vec![0xd8, 0x79, 0x80]), // Constr 0, empty array
         )
         .fee(fee)
         .build_conway_raw()
@@ -72,38 +78,59 @@ pub async fn publish(script_path: &str, proof: &ProofWithPubInput) -> [u8; 32] {
 async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     // Could be loaded once in the beginning and reused.
     let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
-    let (script_bytes, script_hash) = script_bytecode(script_path).await;
-    // let script_hash = script_hash(&script_bytes, SCRIPT_VERSION);
+    let (script_bytes, _, script_addr) = script_bytecode(script_path).await;
+
+    dbg!(&script_addr);
+    dbg!(script_addr.to_bech32().unwrap());
 
     // Build inputs
 
-    let fee = 200_000;
+    let fee = 600_000; // 436253
     let min_balance = 4_000_000;
 
-    // Use the first UTXO we have as input
     let utxos = get_utxos(&addr).await;
-    let (input_script, input_fees) = select_utxo(&utxos, &script_hash, fee + min_balance);
-    let input_script = input_script.expect("Script not found");
+    let input_fees = select_utxo(&utxos, fee + min_balance);
+
+    let script_utxos = get_utxos(&script_addr.to_bech32().unwrap()).await;
+    dbg!(&script_utxos);
+    let script_ref = script_utxos
+        .iter()
+        .find(|u| u.reference_script_hash.is_some())
+        .expect("Not deployed");
+    let script_locked = script_utxos
+        .iter()
+        .find(|u| u.reference_script_hash.is_none())
+        .unwrap();
+
+    dbg!(&script_ref, &script_locked, input_fees);
+
     let addr = pallas_addresses::Address::from_bech32(&addr).unwrap();
+
+    let cost_model = get_cost_model_plutusv3().await;
 
     // Build transaction
     let tx = StagingTransaction::new()
         .network_id(NetworkId::Testnet.into())
-        .input(input_script.to_input())
+        // .reference_input(script_ref.to_input())
+        .script(PlutusV3, script_bytes)
+        .input(script_locked.to_input())
         .input(input_fees.to_input())
+        .collateral_input(input_fees.to_input())
         .output(Output::new(
             addr.clone(),
             input_fees.lovelace_balance() - fee,
         ))
         .output(
-            Output::new(addr, input_script.lovelace_balance())
-                .set_inline_script(PlutusV3, script_bytes)
+            Output::new(script_addr, script_locked.lovelace_balance())
                 .set_inline_datum(vec![0xd8, 0x79, 0x80]),
         )
+        .language_view(PlutusV3, cost_model)
         .fee(fee);
-    let ex_units = eval_execution_units(&tx, input_script.to_input(), redeemer.clone()).await;
+    dbg!(&tx.inputs);
+    dbg!(script_locked.to_input());
+    let ex_units = eval_execution_units(&tx, script_locked.to_input(), redeemer.clone()).await;
     let tx = tx
-        .add_spend_redeemer(input_script.to_input(), redeemer, Some(ex_units))
+        .add_spend_redeemer(script_locked.to_input(), redeemer, Some(ex_units))
         .build_conway_raw()
         .unwrap();
 
@@ -127,7 +154,7 @@ fn encode_redeemer(proof: &ProofWithPubInput) -> Vec<u8> {
 
 fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     let claim_value = &proof.pub_input[1..1 + MAX_VALUE_BYTES];
-    let claim_value: Vec<u8> = claim_value
+    let mut claim_value: Vec<u8> = claim_value
         .iter()
         .map(|x| {
             assert!(*x <= u8::MAX.into());
@@ -137,6 +164,9 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
             x as u8
         })
         .collect();
+
+    // Intentionally invalidate proof for testing
+    claim_value[30] = 0x42;
 
     // See https://cardano-c.readthedocs.io/en/latest/api/plutus_data/constr_plutus_data.html
     const TAG_CONSTR_0: u64 = 121;
@@ -159,20 +189,67 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     })
 }
 
-// TODO: Wrong format
 fn bls_g1_to_bytes(a: &G1) -> Vec<u8> {
-    let a: ark_bls12_381::G1Projective = a.clone().to_bls12_381().into();
-    let mut bytes = Vec::with_capacity(3 * 32);
-    a.serialize_uncompressed(&mut bytes).unwrap();
-    debug_assert_eq!(bytes.len(), 3 * 32);
-    bytes
+    // There might be pre-build methods for this since we already have it as G1, but I could not
+    // find them, so I'm implementing the encoding myself (as done for vkey in deployment).
+    let infinity = a.x.is_zero() && a.y.is_zero();
+
+    if infinity {
+        let mut out = vec![0xc0];
+        out.resize(48, 0);
+        out
+    } else {
+        let mut out = a.x.to_bytes_le();
+
+        assert!(out.len() <= 48);
+        out.resize(48, 0);
+        out.reverse();
+        assert!(out[0] < 32, "upper 3 bits of x coordinate should be 0");
+        out[0] |= 0x80; // Always in compressed form.
+
+        let a = a.clone().to_bls12_381();
+
+        let is_larger_y = a.y > -a.y;
+        if is_larger_y {
+            out[0] |= 0x20;
+        }
+
+        out
+    }
 }
 fn bls_g2_to_bytes(a: &G2) -> Vec<u8> {
-    let a: ark_bls12_381::G2Projective = a.clone().to_bls12_381().into();
-    let mut bytes = Vec::with_capacity(6 * 32);
-    a.serialize_uncompressed(&mut bytes).unwrap();
-    debug_assert_eq!(bytes.len(), 6 * 32);
-    bytes
+    let infinity = a.x[0].is_zero() && a.x[1].is_zero() && a.y[0].is_zero() && a.y[1].is_zero();
+
+    if infinity {
+        let mut out = vec![0xc0];
+        out.resize(96, 0);
+        out
+    } else {
+        let mut out = a.x[1].to_bytes_le();
+        assert!(out.len() <= 48);
+        out.resize(48, 0);
+        out.reverse();
+        assert!(out[0] < 32, "upper 3 bits of x coordinate should be 0");
+
+        let mut x0 = a.x[0].to_bytes_le();
+        assert!(x0.len() <= 48);
+        x0.resize(48, 0);
+        x0.reverse();
+        assert!(x0[0] < 32, "upper 3 bits of x coordinate should be 0");
+
+        out.extend(x0);
+
+        out[0] |= 0x80; // Always in compressed form.
+
+        let a = a.clone().to_bls12_381();
+
+        let is_larger_y = a.y > -a.y;
+        if is_larger_y {
+            out[0] |= 0x20;
+        }
+
+        out
+    }
 }
 
 #[derive(Deserialize)]
@@ -187,13 +264,21 @@ struct Validator {
 }
 
 // Additionally returns hex(hash).
-async fn script_bytecode(path: &str) -> (Vec<u8>, String) {
+async fn script_bytecode(path: &str) -> (Vec<u8>, [u8; 28], pallas_addresses::Address) {
     let json = tokio::fs::read_to_string(path).await.unwrap();
     let plutus_json: PlutusJson = serde_json::from_str(&json).unwrap();
     let data = plutus_json.validators.into_iter().next().unwrap();
     let script = hex::decode(&data.compiled_code).expect("invalid hex");
+    let hash = <[u8; 28]>::from_hex(&data.hash).unwrap();
 
-    (script, data.hash)
+    let addr = ShelleyAddress::new(
+        pallas_addresses::Network::Testnet,
+        ShelleyPaymentPart::Script(hash.into()),
+        ShelleyDelegationPart::Null,
+    );
+    let addr = pallas_addresses::Address::Shelley(addr);
+
+    (script, hash, addr)
 }
 
 // async fn script_bytecode(path: &str) -> Vec<u8> {
@@ -227,7 +312,7 @@ async fn read_sk() -> PrivateKey {
     PrivateKey::Normal(sk.into())
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Utxo {
     // There are more fields, but for now we just need these.
     tx_hash: String,
@@ -236,7 +321,7 @@ struct Utxo {
     reference_script_hash: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct BalanceEntry {
     unit: String,
     quantity: String,
@@ -272,25 +357,34 @@ async fn get_utxos(addr: &str) -> Vec<Utxo> {
         .header("project_id", blockfrost_key)
         .build()
         .unwrap();
-    client
-        .execute(request)
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
-        .await
-        .unwrap()
+    let res = client.execute(request).await.unwrap();
+    match res.status() {
+        StatusCode::NOT_FOUND => vec![],
+        StatusCode::OK => res.json().await.unwrap(),
+        _ => todo!("Unexpected status code: {res:?}"),
+    }
 }
 
-fn select_utxo<'a>(
+fn select_utxo<'a>(utxos: &'a [Utxo], min_balance: u64) -> &'a Utxo {
+    let fee_payer = utxos.iter().find(|u| {
+        u.amount[0].unit == "lovelace"
+            && u.amount[0].quantity.parse::<u64>().unwrap() >= min_balance
+    });
+    let Some(fee_payer) = fee_payer else {
+        panic!("Insufficient funds");
+    };
+    fee_payer
+}
+
+fn select_utxo_old<'a>(
     utxos: &'a [Utxo],
-    script_hash: &str,
+    script_hash: [u8; 28],
     min_balance: u64,
 ) -> (Option<&'a Utxo>, &'a Utxo) {
+    let script_hash: String = hex::encode(&script_hash);
     let script = utxos
         .iter()
-        .find(|u| u.reference_script_hash.as_deref() == Some(script_hash));
+        .find(|u| u.reference_script_hash.as_deref() == Some(&script_hash));
     let fee_payer = utxos.iter().find(|u| {
         u.reference_script_hash.is_none()
             && u.amount[0].unit == "lovelace"
@@ -300,6 +394,59 @@ fn select_utxo<'a>(
         panic!("Insufficient funds");
     };
     (script, fee_payer)
+}
+
+#[derive(Debug, Deserialize)]
+struct EpochProtocolParams {
+    cost_models_raw: CostModelsRaw,
+}
+#[derive(Debug, Deserialize)]
+struct CostModelsRaw {
+    #[serde(rename = "PlutusV3")]
+    plutus_v3: Vec<i64>,
+}
+
+async fn get_cost_model_plutusv3() -> Vec<i64> {
+    let blockfrost_key =
+        std::env::var("BLOCKFROST_KEY").expect("No BLOCKFROST_KEY environment variable");
+
+    let client = reqwest::Client::new();
+    let req = client
+        .get(format!("{BLOCKFROST_URL}/epochs/latest/parameters"))
+        .header("project_id", blockfrost_key)
+        .build()
+        .unwrap();
+    let res: EpochProtocolParams = client
+        .execute(req)
+        .await
+        .expect("Could not send request")
+        .error_for_status()
+        .expect("Server returned unexpected status code")
+        .json()
+        .await
+        .expect("Response could not be decoded into struct");
+
+    res.cost_models_raw.plutus_v3
+}
+
+#[derive(Debug, Deserialize)]
+struct EvalResult {
+    result: EvalResult2,
+}
+#[derive(Debug, Deserialize)]
+struct EvalResult2 {
+    #[serde(rename = "EvaluationResult")]
+    evaluation_result: EvalResult3,
+}
+#[derive(Debug, Deserialize)]
+struct EvalResult3 {
+    #[serde(rename = "spend:0", alias = "spend:1")]
+    spend_1: EvalResult4,
+}
+#[derive(Debug, Deserialize)]
+struct EvalResult4 {
+    memory: u64,
+    steps: u64,
 }
 
 /// I don't know how exactly this interacts with multiple redeemers or how the ex units would need
@@ -312,11 +459,10 @@ async fn eval_execution_units(
     let blockfrost_key =
         std::env::var("BLOCKFROST_KEY").expect("No BLOCKFROST_KEY environment variable");
 
-    dbg!(tx);
     // I have not found a better way to do this, yet.
     let tx = tx
         .clone()
-        .add_spend_redeemer(input, plutus_data, Some(ExUnits { mem: 0, steps: 0 }))
+        .add_spend_redeemer(input, plutus_data, Some(ExUnits { mem: 1, steps: 1 }))
         .build_conway_raw()
         .unwrap();
 
@@ -335,7 +481,12 @@ async fn eval_execution_units(
     let res = client.execute(req).await.unwrap().text().await.unwrap();
     eprintln!("{res}");
 
-    todo!()
+    let res: EvalResult = serde_json::from_str(&res).unwrap();
+    let res = res.result.evaluation_result.spend_1;
+    ExUnits {
+        mem: res.memory,
+        steps: res.steps,
+    }
 }
 
 async fn submit_tx(cbor: Vec<u8>) {
@@ -376,22 +527,6 @@ mod test {
         prover::{MultiuseProver, ProofWithPubInput},
     };
 
-    // This test is very basic and just checks the output length.
-    #[test]
-    fn g1_encoding_len() {
-        let a = ark_bls12_381::G1Affine::rand(&mut rand::thread_rng());
-        let a = G1::from_bls12_381(&a);
-        let bytes = super::bls_g1_to_bytes(&a);
-        assert_eq!(bytes.len(), 3 * 32);
-    }
-    #[test]
-    fn g2_encoding_len() {
-        let a = ark_bls12_381::G2Affine::rand(&mut rand::thread_rng());
-        let a = G2::from_bls12_381(&a);
-        let bytes = super::bls_g2_to_bytes(&a);
-        assert_eq!(bytes.len(), 6 * 32);
-    }
-
     #[test]
     fn redeemer_encoding_roundtrip() {
         let mut pub_input: Vec<BigUint> = Vec::with_capacity(1 + MAX_VALUE_BYTES);
@@ -400,26 +535,16 @@ mod test {
             pub_input.push(i.into())
         }
 
+        let rng = &mut rand::thread_rng();
+
         // Doesn't need to be an acruate/working proof, we are only checking encoding.
         let proof = ProofWithPubInput {
             proof: Proof {
-                a: G1 {
-                    x: 10u64.into(),
-                    y: 11u64.into(),
-                    z: 12u64.into(),
-                },
-                b: G2 {
-                    x: [20u64.into(), 30u64.into()],
-                    y: [21u64.into(), 31u64.into()],
-                    z: [22u64.into(), 32u64.into()],
-                },
-                c: G1 {
-                    x: 40u64.into(),
-                    y: 41u64.into(),
-                    z: 42u64.into(),
-                },
+                a: G1::from_bls12_381(&ark_bls12_381::G1Affine::rand(rng)),
+                b: G2::from_bls12_381(&ark_bls12_381::G2Affine::rand(rng)),
+                c: G1::from_bls12_381(&ark_bls12_381::G1Affine::rand(rng)),
                 protocol: "groth16".to_owned(),
-                curve: "bn128".to_owned(),
+                curve: "bls12381".to_owned(),
             },
             pub_input,
         };
@@ -434,8 +559,9 @@ mod test {
     }
 
     #[tokio::test]
+    #[cfg_attr(not(all(feature = "cardano-tests")), ignore = "-F cardano-tests")]
     async fn e2e_minimal() {
-        super::deploy("zkey/minimal.eudi2web3_demo.cardano.script").await;
+        super::deploy("zkey/minimal.eudi2web3_demo.cardano.json").await;
 
         let mut wtns = Vec::with_capacity(1 + MAX_VALUE_BYTES);
         wtns.push(1.into());
@@ -447,8 +573,46 @@ mod test {
         let (proof, valid) = prover.prove(wtns).unwrap();
         assert!(valid);
 
-        let tx_hash = super::publish("zkey/minimal.eudi2web3_demo.cardano.script", &proof).await;
+        let tx_hash = super::publish("zkey/minimal.eudi2web3_demo.cardano.json", &proof).await;
         dbg!(tx_hash.encode_hex::<String>());
         // TODO: We may need to check if the txn succeeded.
+    }
+
+    #[test]
+    fn generator_encoding_g1() {
+        // See https://cips.cardano.org/cip/CIP-0381#names-and-typeskinds-for-the-new-functions-or-types
+        let bytes = super::bls_g1_to_bytes(&G1::from_bls12_381(&ark_bls12_381::G1Affine::new(
+            ark_bls12_381::g1::G1_GENERATOR_X,
+            ark_bls12_381::g1::G1_GENERATOR_Y,
+        )));
+        let expected: [u8; 48] = [
+            151, 241, 211, 167, 49, 151, 215, 148, 38, 149, 99, 140, 79, 169, 172, 15, 195, 104,
+            140, 79, 151, 116, 185, 5, 161, 78, 58, 63, 23, 27, 172, 88, 108, 85, 232, 63, 249,
+            122, 26, 239, 251, 58, 240, 10, 219, 34, 198, 187,
+        ];
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn generator_encoding_g2() {
+        // See https://cips.cardano.org/cip/CIP-0381#names-and-typeskinds-for-the-new-functions-or-types
+        let bytes = super::bls_g2_to_bytes(&G2::from_bls12_381(&ark_bls12_381::G2Affine::new(
+            ark_bls12_381::Fq2::new(
+                ark_bls12_381::g2::G2_GENERATOR_X_C0,
+                ark_bls12_381::g2::G2_GENERATOR_X_C1,
+            ),
+            ark_bls12_381::Fq2::new(
+                ark_bls12_381::g2::G2_GENERATOR_Y_C0,
+                ark_bls12_381::g2::G2_GENERATOR_Y_C1,
+            ),
+        )));
+        let expected: [u8; 96] = [
+            147, 224, 43, 96, 82, 113, 159, 96, 125, 172, 211, 160, 136, 39, 79, 101, 89, 107, 208,
+            208, 153, 32, 182, 26, 181, 218, 97, 187, 220, 127, 80, 73, 51, 76, 241, 18, 19, 148,
+            93, 87, 229, 172, 125, 5, 93, 4, 43, 126, 2, 74, 162, 178, 240, 143, 10, 145, 38, 8, 5,
+            39, 45, 197, 16, 81, 198, 228, 122, 212, 250, 64, 59, 2, 180, 81, 11, 100, 122, 227,
+            209, 119, 11, 172, 3, 38, 168, 5, 187, 239, 212, 128, 86, 200, 193, 33, 189, 184,
+        ];
+        assert_eq!(bytes, expected);
     }
 }
