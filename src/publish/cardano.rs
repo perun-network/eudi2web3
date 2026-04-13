@@ -376,26 +376,6 @@ fn select_utxo<'a>(utxos: &'a [Utxo], min_balance: u64) -> &'a Utxo {
     fee_payer
 }
 
-fn select_utxo_old<'a>(
-    utxos: &'a [Utxo],
-    script_hash: [u8; 28],
-    min_balance: u64,
-) -> (Option<&'a Utxo>, &'a Utxo) {
-    let script_hash: String = hex::encode(&script_hash);
-    let script = utxos
-        .iter()
-        .find(|u| u.reference_script_hash.as_deref() == Some(&script_hash));
-    let fee_payer = utxos.iter().find(|u| {
-        u.reference_script_hash.is_none()
-            && u.amount[0].unit == "lovelace"
-            && u.amount[0].quantity.parse::<u64>().unwrap() >= min_balance
-    });
-    let Some(fee_payer) = fee_payer else {
-        panic!("Insufficient funds");
-    };
-    (script, fee_payer)
-}
-
 #[derive(Debug, Deserialize)]
 struct EpochProtocolParams {
     cost_models_raw: CostModelsRaw,
