@@ -78,14 +78,16 @@ pub async fn publish(script_path: &str, proof: &ProofWithPubInput) -> [u8; 32] {
 async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     // Could be loaded once in the beginning and reused.
     let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
-    let (script_bytes, _, script_addr) = script_bytecode(script_path).await;
+    let (_, _, script_addr) = script_bytecode(script_path).await;
 
     dbg!(&script_addr);
     dbg!(script_addr.to_bech32().unwrap());
 
     // Build inputs
 
-    let fee = 400_000;
+    // Without CIP-33: 400_000
+    // With    CIP-33: 365_000
+    let fee = 365_000;
     let min_balance = 4_000_000;
 
     let utxos = get_utxos(&addr).await;
@@ -111,8 +113,7 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     // Build transaction
     let tx = StagingTransaction::new()
         .network_id(NetworkId::Testnet.into())
-        // .reference_input(script_ref.to_input())
-        .script(PlutusV3, script_bytes)
+        .reference_input(script_ref.to_input())
         .input(script_locked.to_input())
         .input(input_fees.to_input())
         .collateral_input(input_fees.to_input())
