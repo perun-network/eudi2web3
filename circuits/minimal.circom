@@ -4,11 +4,12 @@ pragma circom 2.2.3;
 // to compute large/expensive proofs. The goal is to be compatible with the on-chain circuit,
 // but with minimal in-circuit work (also having minimal private inputs).
 template Minimal {
-    var MAX_VALUE = 64;
-    
-    signal input value[MAX_VALUE];
+    var MAX_VALUE_SIGNALS = 2;
 
-    value[0] === 65; // 'A'
+    signal input value_compressed[MAX_VALUE_SIGNALS];
+    signal input valid;
+
+    valid === 65; // 'A'
 }
 
-component main {public [value]} = Minimal();
+component main {public [value_compressed]} = Minimal();

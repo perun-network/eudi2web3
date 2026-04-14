@@ -10,7 +10,7 @@ use pallas_wallet::PrivateKey;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
+use crate::{MAX_VALUE_BYTES, MAX_VALUE_SIGNALS, prover::ProofWithPubInput};
 
 const BLOCKFROST_URL: &str = "https://cardano-preview.blockfrost.io/api/v0";
 
@@ -85,7 +85,7 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
 
     // Build inputs
 
-    let fee = 600_000; // 436253
+    let fee = 400_000;
     let min_balance = 4_000_000;
 
     let utxos = get_utxos(&addr).await;
@@ -129,6 +129,11 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     dbg!(&tx.inputs);
     dbg!(script_locked.to_input());
     let ex_units = eval_execution_units(&tx, script_locked.to_input(), redeemer.clone()).await;
+    // let ex_units = ExUnits {     // From testing     aiken check estimate
+    //     mem: 80_000,             // 76_865           57.75 k
+    //     steps: 2_200_000_000,    // 2_150_594_795     2.14 b
+    // };
+    dbg!(&ex_units);
     let tx = tx
         .add_spend_redeemer(script_locked.to_input(), redeemer, Some(ex_units))
         .build_conway_raw()
@@ -153,20 +158,20 @@ fn encode_redeemer(proof: &ProofWithPubInput) -> Vec<u8> {
 }
 
 fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
-    let claim_value = &proof.pub_input[1..1 + MAX_VALUE_BYTES];
-    let mut claim_value: Vec<u8> = claim_value
-        .iter()
-        .map(|x| {
-            assert!(*x <= u8::MAX.into());
-            let digits = x.to_u64_digits();
-            let x = digits.first().copied().unwrap_or(0);
-            assert!(x <= u8::MAX as u64);
-            x as u8
-        })
-        .collect();
+    dbg!(&proof.pub_input);
+    let claim_value_signals = &proof.pub_input[1..1 + MAX_VALUE_SIGNALS];
+    let mut claim_value = Vec::with_capacity(MAX_VALUE_BYTES);
+    for s in 0..MAX_VALUE_SIGNALS {
+        let mut sbytes = claim_value_signals[s].to_bytes_le();
+        sbytes.resize(31, 0);
+        sbytes.reverse();
+        claim_value.extend(sbytes);
+    }
+
+    dbg!(&claim_value_signals, &claim_value);
 
     // Intentionally invalidate proof for testing
-    claim_value[30] = 0x42;
+    // claim_value[30] = 0x42;
 
     // See https://cardano-c.readthedocs.io/en/latest/api/plutus_data/constr_plutus_data.html
     const TAG_CONSTR_0: u64 = 121;
@@ -545,9 +550,17 @@ mod test {
 
         let mut wtns = Vec::with_capacity(1 + MAX_VALUE_BYTES);
         wtns.push(1.into());
-        for i in 0..MAX_VALUE_BYTES {
-            wtns.push((65 + i).into());
+        let mut value0 = 0.into();
+        let mut value1 = 0.into();
+        for i in 0..31 {
+            value0 += num_bigint::BigInt::from(65 + i) << 8 * (31 - 1 - i);
+            value1 += num_bigint::BigInt::from(65 + i + 31) << 8 * (31 - 1 - i);
         }
+        wtns.push(value0);
+        wtns.push(value1);
+        wtns.push(65.into()); // 65 = valid proof
+
+        dbg!(&wtns);
 
         let prover = MultiuseProver::new("zkey/bls12-381/minimal.zkey").unwrap();
         let (proof, valid) = prover.prove(wtns).unwrap();

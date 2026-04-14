@@ -74,13 +74,18 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, sd_depth, sdbytes, path_depth)
     var MAX_HEADER_SIZE = 2048; // Sadly includes x5c (certificate chain)
     var MAX_BYTES = 768;        // Maximum amount of bytes that need json processing
     var MAX_KEY = 10;           // Maximum length of the claim's key name (only one segment for now)
-    var MAX_VALUE = 64;         // Maximum length of the claim value we're interested in (output)
+    var MAX_VALUE_SIGNALS = 2;  // Maximum length of the claim value we're interested in (output)
     var MAX_SD_BYTES = 96;
+    var BYTES_PER_SIGNAL = 31;  // One signal can store 31 bytes.
+
+    var MAX_VALUE = MAX_VALUE_SIGNALS * BYTES_PER_SIGNAL;
 
     var CHECK_SIG = 1; // 0: false, 1:true
 
     input SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) in;
     signal input value[MAX_VALUE]; // 0-padded
+    // Big endian, aligned to the LSB
+    signal output value_compressed[MAX_VALUE_SIGNALS]; // Compressed representation for the verifier
 
     // Canary to detect when rust_witness doesn't have all inputs. Can be removed.
     // signal output test <== 99;
@@ -242,6 +247,15 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, sd_depth, sdbytes, path_depth)
         // sep <== 58 // ':'
     );
 
+    // Compress value for more compact verification keys and proofs.
+    for (var s = 0; s < MAX_VALUE_SIGNALS; s++) {
+        var sum = 0;
+        for (var i = 0; i < BYTES_PER_SIGNAL; i++) {
+            sum += value[BYTES_PER_SIGNAL*s + i] << (8*(BYTES_PER_SIGNAL-i-1));
+        }
+        value_compressed[s] <== sum;
+    }
+
     // TODO: Make the circuit flexible and allow all of the following:
     // - No SD (claim direct in root object)
     // - Value is directly in sd entry (shown above)
@@ -305,5 +319,5 @@ response_mode:
 */
 
 // Configuration: MAX_PAYLOAD_BYTES, sd_depth, sdbytes, path_depth
-component main {public [value]} = SDJWT_ES256_SHA256_1claim(4096, 1, 256, 2);
+component main = SDJWT_ES256_SHA256_1claim(4096, 1, 256, 2);
 

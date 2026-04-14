@@ -17,7 +17,7 @@ fn bytes_to_ints(b: ByteArray, size: Int) -> List<Int> {
         // Careful, slicing is inclusive for some reason.
         bytearray.to_int_big_endian(bytearray.slice(b, 0, size - 1)),
         ..bytes_to_ints(
-          bytearray.slice(b, size, bytearray.length(b) - size),
+          bytearray.slice(b, size, bytearray.length(b)),
           size,
         )
       ]
@@ -31,7 +31,7 @@ validator eudi2web3_demo(vk: SnarkVerificationKey) {
     _utxo: OutputReference,
     _self: Transaction,
   ) {
-    let public = bytes_to_ints(redeemer.value, 1)
+    let public = bytes_to_ints(redeemer.value, 31)
 
     // PERFORMANCE: We probably want to compress multiple bytes into a single signal (in circuit and here),
     // which is why I added the size argument.
@@ -47,11 +47,17 @@ validator eudi2web3_demo(vk: SnarkVerificationKey) {
   }
 }
 
-test test_bytes_to_ints() {
+test test_bytes_to_ints_1() {
   bytes_to_ints(#[10, 255, 30, 98], 1) == [10, 255, 30, 98]
 }
+test test_bytes_to_ints_2() {
+  bytes_to_ints(#[10, 255, 30, 98], 2) == [10*256+255, 30*256+98]
+}
+test test_bytes_to_ints_3() {
+  bytes_to_ints(#[10, 255, 30, 98, 42, 66], 3) == [10*256*256+255*256+30, 98*256*256+42*256+66]
+}
 
-test proof_verify() {
+test proof_verify_old_uncompressed() {
   // From minimal circuit
   let vk =
     SnarkVerificationKey {
@@ -144,6 +150,51 @@ test proof_verify() {
     }
 
   let public = bytes_to_ints(redeemer.value, 1)
+  let res = groth_verify(vk, redeemer.proof, public)
+  if res {
+    True
+  } else {
+    fail
+  }
+}
+
+test proof_verify() {
+  // From minimal circuit
+  // Run `cargo run --bin vkey2cardano -- zkey/bls12-381/minimal.vkey.json`
+  // Copy output to https://cbor.app decoder
+  // Copy over the hex to here.
+  let vk =
+    SnarkVerificationKey {
+      nPublic: 2,
+      vkAlpha: #"a63d3f9da341bc7a6ea6782aea2c0e283186e1337a68acd847d90786e3f84a3365c676c9a2cf34a628fb6c1be753685a",
+      vkBeta: #"a2a733fec36dc4301490dbb5d3b62cc64c4da29a23820789bd2c89af60185b465a0009a60d2dbb11f0b72dfe82c01b9d05379340953065e08c1526b73c0988fda3c182b4974d99d34ab3c9298acf77c427a0d10b5915da912abf402440fd0b38",
+      vkGamma: #"93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8",
+      vkDelta: #"a985ea0aac64eb21497211a0d2c388e6e8886c89ac92e2c7e0ade23d58f17c4be062145a700e83afb19a4bd5d5becb0206b2fcec8103956e1d99b925f3fb46b6914aaaf6600aba7f2c8135f76a1e72ce99530fec29b654c134628119665303ec",
+      vkAlphaBeta: [
+        #"a2414647fef6ce72a54e01864783c95420458493adfbed4fa07f6cfcd796c0c326db9d5226ad556b9959002e4ff1d39705734130f55c91176d1ce40c216ffa5f072b46162cb3c27043c6a0fd71bc3e54ceaff8f141894713b4ed627cf5b9c3b7",
+        #"b993cf8bbf14f61390f18484c347926e2599b1b8e7df384ab3fd47801f3c54637ae98b84ea2566376147976c8dfd49e1040d9ae5f489a4242496116e27f41c3ece38ec49758626b7ec5d9d88b68ae31fab3525715c8211bc75ea308c2c625f0a",
+      ],
+      vkIC: [
+        #"8e821af64627aee54db6fbd468ecda507fc5ecf755ea3b158cb5676e3df811274f9fcb90e73ce40f2890a58772c5ea2a",
+        #"8242b8e034f45007d99e0d8b086e9b28d45ebf129a2edf19e722ad94a390f003e99899e2acd531ffef27bfe641f2f6d6",
+        #"a53c5df664d1ab4b2340f6da6ae19a595777ecceb8113c7479ed3e6b1b477f666b61ed3cc99640260e085ac9e7397a63",
+      ],
+    }
+
+
+  // Run e2e_minimal test, copy the redeemer hex to https://cbor.app
+  // and copy the decoded bytes back here.
+  let redeemer =
+    Redeemer {
+      proof: Proof {
+        piA: #"b062cbb248a92bd3ab6b703c98cb69b35e99a74d521e0a08052463a5b32115c87b8bc0ce109e02e4a9729789fd074a0a",
+        piB: #"a345cb6ac60ff106417a139ca83b01ee133412af5d7c79e8e67336cc4c523ba75fb3785f925f61a87c74b60c871140321414e22da3dff3d4dc216f181641470d23d76f6beca361151d6e729e7b2c944e2761b6dee1c8b0a3b8f69def8fcc51e1",
+        piC: #"b3abb6fda1d72b1e1f24cb03e5134ce8c3db64a80d71b7ea6b816e30148de13efdc2fd5d77c0c5e19c54a36985fb8655",
+      },
+      value: #"4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e",
+    }
+
+  let public = bytes_to_ints(redeemer.value, 31)
   let res = groth_verify(vk, redeemer.proof, public)
   if res {
     True

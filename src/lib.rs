@@ -54,7 +54,8 @@ const ZKEY_PATH: &str = "zkey/bls12-381/minimal.zkey";
 // Configuration of the circuit (must be the same as in the circom file)
 const MAX_PAYLOAD_BYTES: usize = 4096; // JWT header + '.' + body + sha256 padding
 const MAX_HEADER_SIZE: usize = 2048; // JWT header
-const MAX_VALUE_BYTES: usize = 64; // Output value
+const MAX_VALUE_SIGNALS: usize = 2;
+const MAX_VALUE_BYTES: usize = MAX_VALUE_SIGNALS * 31; // Output value
 const MAX_SD_BYTES: usize = 256;
 
 const ISSUER_PUBLIC: &[u8] = b"
