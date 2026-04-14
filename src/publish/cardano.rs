@@ -541,7 +541,7 @@ mod test {
     #[tokio::test]
     #[cfg_attr(not(all(feature = "cardano-tests")), ignore = "-F cardano-tests")]
     async fn e2e_minimal() {
-        super::deploy("zkey/minimal.eudi2web3_demo.cardano.json").await;
+        super::deploy("zkey/bls12-381/minimal.cardano.json").await;
 
         let mut wtns = Vec::with_capacity(1 + MAX_VALUE_BYTES);
         wtns.push(1.into());
@@ -549,11 +549,11 @@ mod test {
             wtns.push((65 + i).into());
         }
 
-        let prover = MultiuseProver::new("zkey/minimal.zkey").unwrap();
+        let prover = MultiuseProver::new("zkey/bls12-381/minimal.zkey").unwrap();
         let (proof, valid) = prover.prove(wtns).unwrap();
         assert!(valid);
 
-        let tx_hash = super::publish("zkey/minimal.eudi2web3_demo.cardano.json", &proof).await;
+        let tx_hash = super::publish("zkey/bls12-381/minimal.cardano.json", &proof).await;
         dbg!(tx_hash.encode_hex::<String>());
         // TODO: We may need to check if the txn succeeded.
     }

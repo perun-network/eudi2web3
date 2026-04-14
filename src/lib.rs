@@ -34,7 +34,22 @@ mod routes;
 #[cfg(test)]
 mod sdjwt;
 
-const SCRIPT_PATH: &str = "zkey/sdjwt_es256_sha256_1claim-eudi2web3_demo.cardano.json";
+// TODO: In the long run we might want to allow multiple curves + circuit variants
+
+// Not useful for the bn254 curve because that can't be verified on the cardano chain.
+#[cfg(feature = "insecure-circuit")]
+const SCRIPT_PATH: &str = "zkey/bls12-381/sdjwt_es256_sha256_1claim.cardano.json";
+#[cfg(not(feature = "insecure-circuit"))]
+const SCRIPT_PATH: &str = "zkey/bls12-381/minimal.cardano.json";
+
+#[cfg(all(not(feature = "bls12-381"), not(feature = "insecure-circuit")))]
+const ZKEY_PATH: &str = "zkey/bn254/sdjwt_es256_sha256_1claim.zkey";
+#[cfg(all(feature = "bls12-381", not(feature = "insecure-circuit")))]
+const ZKEY_PATH: &str = "zkey/bls12-381/sdjwt_es256_sha256_1claim.zkey";
+#[cfg(all(not(feature = "bls12-381"), feature = "insecure-circuit"))]
+const ZKEY_PATH: &str = "zkey/bn254/minimal.zkey";
+#[cfg(all(feature = "bls12-381", feature = "insecure-circuit"))]
+const ZKEY_PATH: &str = "zkey/bls12-381/minimal.zkey";
 
 // Configuration of the circuit (must be the same as in the circom file)
 const MAX_PAYLOAD_BYTES: usize = 4096; // JWT header + '.' + body + sha256 padding
@@ -350,9 +365,8 @@ pub async fn run_server() {
     });
 
     println!("Loading zkey ...");
-    let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
     let t0 = Instant::now();
-    let prover = MultiuseProver::new(zkey_path).unwrap();
+    let prover = MultiuseProver::new(ZKEY_PATH).unwrap();
     let prover = Box::leak(Box::new(prover));
     print_execution_time("ZKey loading finished", t0);
 
@@ -568,8 +582,8 @@ mod test {
     use std::time::Instant;
 
     use crate::{
-        MAX_VALUE_BYTES, presentation2input, print_execution_time, prover::MultiuseProver, sdjwt,
-        witness,
+        MAX_VALUE_BYTES, ZKEY_PATH, presentation2input, print_execution_time,
+        prover::MultiuseProver, sdjwt, witness,
     };
     use serde_json::json;
 
@@ -624,9 +638,8 @@ mod test {
 
         // Setup prover and load key material
         println!("Loading zkey ...");
-        let zkey_path = "zkey/sdjwt_es256_sha256_1claim.zkey";
         let t0 = Instant::now();
-        let prover = MultiuseProver::new(zkey_path).unwrap();
+        let prover = MultiuseProver::new(ZKEY_PATH).unwrap();
         print_execution_time("ZKey loading finished", t0);
 
         // We test with hard coded issuer public key. In the long run this likely gets more complex.
