@@ -981,7 +981,6 @@ dependencies = [
  "bh-jws-utils 0.6.1",
  "bhmdoc",
  "bhx5chain",
- "cc",
  "circom-prover",
  "crossbeam",
  "hex",
@@ -1002,7 +1001,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
- "walkdir",
  "wtns-file",
 ]
 

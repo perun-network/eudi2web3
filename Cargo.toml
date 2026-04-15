@@ -54,10 +54,6 @@ reqwest = { version = "0.13.2", features = ["json"] }
 pallas-addresses = "0.35.0"
 pallas-wallet = "0.35.0"
 
-[build-dependencies]
-cc = { version = "1.2.55", features = ["parallel"] }
-walkdir = "2.5.0"
-
 [features]
 # Curve selection
 bls12-381 = []

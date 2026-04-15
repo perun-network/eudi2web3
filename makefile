@@ -5,7 +5,7 @@ SHELL := /usr/bin/env bash
 PTAU_SIZE_BN254 := 22
 PTAU_SIZE_BLS12381 := 22
 
-.PHONY: bn254 .bls12381 r1cs r1cs-bls12381 init
+.PHONY: bn254 .bls12381 r1cs r1cs-bls12381 init install_w2c2
 # Cryptographically relevant and expensive files we want to keep around.
 # Note that these are rule names.
 .PRECIOUS: %.zkey %.0001.zkey zkey/bn254/%.r1cs zkey/bls12-381/%.r1cs ptau/bn254_%.ptau ptau/bls12381_%.ptau
@@ -47,7 +47,7 @@ clean:
 # for convenience #
 ###################
 # For some reason the @# is load-bearing
-prep-lib-%-minimal: zkey/%/minimal.zkey zkey/bls12-381/minimal.cardano.json
+prep-lib-%-minimal: zkey/%/minimal.zkey zkey/bls12-381/minimal.cardano.json zkey/lib/lib%_minimal.a
 	@#
 prep-tests-%-minimal: prep-lib-%-minimal zkey/bls12-381/minimal.zkey
 	@#
@@ -113,6 +113,26 @@ zkey/bls12-381/%.0000.zkey: zkey/bls12-381/%.r1cs ptau/bls12-381_$(PTAU_SIZE_BLS
 %.vkey.json: %.zkey
 	snarkjs zkey export verificationkey $< $@
 
+##########################
+# Witness gen (via w2c2) #
+##########################
+target/w2c2 target/w2c2_includes/w2c2_base.h &:
+	mkdir -p target/w2c2_includes
+	scripts/install_w2c2.sh
+
+# Also outputs .h
+zkey/%.c: zkey/%.r1cs target/w2c2
+	scripts/run_w2c2.sh $< $@
+
+zkey/%.o: zkey/%.c target/w2c2_includes/w2c2_base.h
+	gcc -std=c99 -O3 -I target/w2c2_includes -c $< -o $@
+
+zkey/lib/libbn254_%.a: zkey/bn254/%.o
+	mkdir -p zkey/lib
+	ar rcs $@ $<
+zkey/lib/libbls12381_%.a: zkey/bls12-381/%.o
+	mkdir -p zkey/lib
+	ar rcs $@ $<
 
 ###########
 # CARDANO #

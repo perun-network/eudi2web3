@@ -20,14 +20,14 @@ mod witness {
     mod runtime;
 
     #[cfg(feature = "insecure-circuit")]
-    rust_witness::witness!(minimal);
+    rust_witness::witness!(bls12381minimal);
     #[cfg(not(feature = "insecure-circuit"))]
-    rust_witness::witness!(sdjwtes256sha2561claim);
+    rust_witness::witness!(bn12381sdjwtes256sha2561claim);
 
     #[cfg(feature = "insecure-circuit")]
-    pub use minimal_witness as compute_witness;
+    pub use bls12381minimal_witness as compute_witness;
     #[cfg(not(feature = "insecure-circuit"))]
-    pub use sdjwtes256sha2561claim_witness as compute_witness;
+    pub use bn12381sdjwtes256sha2561claim_witness as compute_witness;
 }
 
 pub mod publish {
