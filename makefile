@@ -130,7 +130,7 @@ zkey/%.o: zkey/%.c target/w2c2_includes/w2c2_base.h
 zkey/lib/libbn254_%.a: zkey/bn254/%.o
 	mkdir -p zkey/lib
 	ar rcs $@ $<
-zkey/lib/libbls12381_%.a: zkey/bls12-381/%.o
+zkey/lib/libbls12-381_%.a: zkey/bls12-381/%.o
 	mkdir -p zkey/lib
 	ar rcs $@ $<
 
