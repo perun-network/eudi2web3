@@ -47,17 +47,8 @@ jobs:
           make prep-tests-bn254-minimal
           PTAU_SIZE_BN254=05
           PTAU_SIZE_BLS12381=05
-      # NOTE: We currently use this renaming trick, as the eudi2web3 (currently) has the circuit name hard coded.
-      # Most likely we will change this and select the circuit dynamically (+ choice on which one to use).
-      - name: Use minimal circuit for tests
-        run: |
-          mv zkey/bn254/minimal_js zkey/bn254/sdjwt_es256_sha256_1claim_js
-          mv zkey/bn254/sdjwt_es256_sha256_1claim_js/minimal.wasm zkey/bn254/sdjwt_es256_sha256_1claim_js/sdjwt_es256_sha256_1claim.wasm
-          mv zkey/bn254/minimal.r1cs zkey/bn254/sdjwt_es256_sha256_1claim.r1cs
-          mv zkey/bn254/minimal.zkey zkey/bn254/sdjwt_es256_sha256_1claim.zkey
-          mv zkey/bn254/minimal.cardano.json zkey/bn254/sdjwt_es256_sha256_1claim.cardano.json
       # Note: This does not run slow tests or tests communicating with a cardano testnet.
-      - run: cargo nextest run --locked --no-fail-fast
+      - run: cargo nextest run --locked --no-fail-fast -F insecure-circuit
       - run: cargo test --doc --locked
 
   cardano-contract:
