@@ -16,10 +16,7 @@ fn bytes_to_ints(b: ByteArray, size: Int) -> List<Int> {
       [
         // Careful, slicing is inclusive for some reason.
         bytearray.to_int_big_endian(bytearray.slice(b, 0, size - 1)),
-        ..bytes_to_ints(
-          bytearray.slice(b, size, bytearray.length(b)),
-          size,
-        )
+        ..bytes_to_ints(bytearray.slice(b, size, bytearray.length(b)), size)
       ]
   }
 }
@@ -50,11 +47,16 @@ validator eudi2web3_demo(vk: SnarkVerificationKey) {
 test test_bytes_to_ints_1() {
   bytes_to_ints(#[10, 255, 30, 98], 1) == [10, 255, 30, 98]
 }
+
 test test_bytes_to_ints_2() {
-  bytes_to_ints(#[10, 255, 30, 98], 2) == [10*256+255, 30*256+98]
+  bytes_to_ints(#[10, 255, 30, 98], 2) == [10 * 256 + 255, 30 * 256 + 98]
 }
+
 test test_bytes_to_ints_3() {
-  bytes_to_ints(#[10, 255, 30, 98, 42, 66], 3) == [10*256*256+255*256+30, 98*256*256+42*256+66]
+  bytes_to_ints(#[10, 255, 30, 98, 42, 66], 3) == [
+    10 * 256 * 256 + 255 * 256 + 30,
+    98 * 256 * 256 + 42 * 256 + 66,
+  ]
 }
 
 test proof_verify_old_uncompressed() {
@@ -180,7 +182,6 @@ test proof_verify() {
         #"a53c5df664d1ab4b2340f6da6ae19a595777ecceb8113c7479ed3e6b1b477f666b61ed3cc99640260e085ac9e7397a63",
       ],
     }
-
 
   // Run e2e_minimal test, copy the redeemer hex to https://cbor.app
   // and copy the decoded bytes back here.
