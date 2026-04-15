@@ -3,8 +3,16 @@ BUILD_DIR=$(mktemp -d)
 OUT=$PWD/target
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
-git clone --recursive https://github.com/vivianjeng/w2c2 $BUILD_DIR
 cd $BUILD_DIR
+if [ -z "$W2C2_REV" ]; then
+    git clone --recursive https://github.com/vivianjeng/w2c2 .
+else
+    git init
+    git remote add origin https://github.com/vivianjeng/w2c2
+    git fetch --depth 1 origin "$W2C2_REV"
+    git checkout FETCH_HEAD
+    git submodule update --init --depth 1
+fi
 
 cmake -B build
 cmake --build build
