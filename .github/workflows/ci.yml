@@ -23,7 +23,7 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
           make init
-      - run: cargo clippy --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
 
   rust-test:
     runs-on: ubuntu-latest
