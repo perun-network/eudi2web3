@@ -8,7 +8,7 @@ PTAU_SIZE_BLS12381 := 22
 .PHONY: bn254 .bls12381 r1cs r1cs-bls12381 init
 # Cryptographically relevant and expensive files we want to keep around.
 # Note that these are rule names.
-.PRECIOUS: %.zkey %.0001.zkey zkey/bn254/%.r1cs zkey/bls12-381/%.r1cs
+.PRECIOUS: %.zkey %.0001.zkey zkey/bn254/%.r1cs zkey/bls12-381/%.r1cs ptau/bn254_%.ptau ptau/bls12381_%.ptau
 
 # Compile circuits for this curve and prepare everything for cargo run.
 # This includes a 1-person setup and can be quite slow for large circuits
@@ -67,9 +67,9 @@ ptau/bn254_%.ptau:
 
 
 # I could not find a good source for a bls12-381 ptau file that is large enough, so we have to generate it (will take a long time).
-ptau/bls12381_%.ptau:
+ptau/bls12-381_%.ptau:
 	time snarkjs -v powersoftau new bls12381 $* $@
-	time snarkjs -v powersoftau contribute $@ $@.tmp --name="first"
+	time snarkjs -v powersoftau contribute $@ $@.tmp --name="first" --entropy="$${SNARKJS_ENTROPY:-$$(uuidgen)}"
 	# 4 sections: tauG1, tauG2, alphaTauG1, betaTauG1
 	# Each section goes up to fft PTAU
 	time snarkjs -v powersoftau prepare phase2 $@.tmp $@ -v
@@ -105,7 +105,7 @@ zkey/bls12-381/%.0000.zkey: zkey/bls12-381/%.r1cs ptau/bls12-381_$(PTAU_SIZE_BLS
 	@# Very important step for security. Can be skipped during development but without this the whole proof system is insecure.
 	@# See https://rekt.news/default-settings
 	@# See https://blog.zksecurity.xyz/posts/groth16-setup-exploit/
-	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs zkey contribute $< $@
+	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs zkey contribute $< $@ --entropy "$(SNARKJS_ENTROPY)"
 
 %.zkey: %.0001.zkey
 	ln -sfn $(notdir $<) $@
