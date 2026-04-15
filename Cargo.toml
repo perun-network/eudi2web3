@@ -3,6 +3,7 @@ resolver = "2"
 package.license = "Apache-2.0"
 
 members = ["crates/*"]
+default-members = [".", "crates/*"]
 
 [package]
 name = "eudi2web3"
