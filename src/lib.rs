@@ -19,8 +19,15 @@ mod witness {
     // Contains non-mangled symbols called from C
     mod runtime;
 
-    // rust_witness::witness!(dlpexample);
+    #[cfg(feature = "insecure-circuit")]
+    rust_witness::witness!(minimal);
+    #[cfg(not(feature = "insecure-circuit"))]
     rust_witness::witness!(sdjwtes256sha2561claim);
+
+    #[cfg(feature = "insecure-circuit")]
+    pub use minimal_witness as compute_witness;
+    #[cfg(not(feature = "insecure-circuit"))]
+    pub use sdjwtes256sha2561claim_witness as compute_witness;
 }
 
 pub mod publish {
@@ -454,7 +461,7 @@ fn compute_proof(prover: &MultiuseProver, job: &QueuedJob) -> Result<ProofWithPu
 
     println!("INFO: Generating witness ...");
     let t0 = Instant::now();
-    let wit = witness::sdjwtes256sha2561claim_witness(input);
+    let wit = witness::compute_witness(input);
     print_execution_time("Witness generation finished", t0);
 
     println!("INFO: Generating proof ...");
@@ -592,10 +599,14 @@ mod test {
 
     // This code comes from MS1
     // In debug mode it is basically unusable, taking ~200 seconds (without signature verification
-    // in the proof). This test can be run with `cargo test --lib -F slow-tests --release`
+    // in the proof). This test can be run with `cargo test --lib -F slow-tests --release`.
+    // It is also enabled when using -F insecure-circuit, as that makes the test way faster (0.159s).
     #[test]
     #[cfg_attr(
-        not(all(feature = "slow-tests", not(debug_assertions))),
+        not(any(
+            all(feature = "slow-tests", not(debug_assertions)),
+            feature = "insecure-circuit"
+        )),
         ignore = "-F slow-tests --release"
     )]
     fn compute_proof_using_generated_credential() {
@@ -670,7 +681,7 @@ mod test {
 
         println!("INFO: Generating witness ...");
         let t0 = Instant::now();
-        let wit = witness::sdjwtes256sha2561claim_witness(input);
+        let wit = witness::compute_witness(input);
         print_execution_time("Witness generation finished", t0);
 
         println!("INFO: Generating proof ...");
