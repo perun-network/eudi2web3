@@ -31,11 +31,17 @@ jobs:
       - uses: actions/checkout@v5
       - run: rustup update 1.90 && rustup default 1.90
       - uses: taiki-e/install-action@nextest
+      - run: cargo install --locked --git https://github.com/iden3/circom.git
+      - run: npm install -g snarkjs
       - uses: Swatinem/rust-cache@v2
       - name: make init
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
           make init
+      # NOTE: We are using the minimal circuit, for which way smaller ptau sizes are possible.
+      - name: Compile circuit and generate key material
+        run: make prep-tests-bn254-minimal PTAU_SIZE_BN254=5 PTAU_SIZE_BLS12381=5
+      # Note: This does not run slow tests or tests communicating with a cardano testnet.
       - run: cargo nextest run --locked --no-fail-fast
       - run: cargo test --doc --locked
 
