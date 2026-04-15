@@ -27,7 +27,7 @@ pub async fn deploy(path: &str) {
     let locked = 900_000;
 
     let script_utxos = get_utxos(&script_addr.to_bech32().unwrap()).await;
-    if script_utxos.len() >= 1 {
+    if !script_utxos.is_empty() {
         eprintln!("Script already deployed, doing nothing");
         return;
     }
@@ -162,8 +162,8 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     dbg!(&proof.pub_input);
     let claim_value_signals = &proof.pub_input[1..1 + MAX_VALUE_SIGNALS];
     let mut claim_value = Vec::with_capacity(MAX_VALUE_BYTES);
-    for s in 0..MAX_VALUE_SIGNALS {
-        let mut sbytes = claim_value_signals[s].to_bytes_le();
+    for signal in claim_value_signals {
+        let mut sbytes = signal.to_bytes_le();
         sbytes.resize(31, 0);
         sbytes.reverse();
         claim_value.extend(sbytes);
@@ -371,7 +371,7 @@ async fn get_utxos(addr: &str) -> Vec<Utxo> {
     }
 }
 
-fn select_utxo<'a>(utxos: &'a [Utxo], min_balance: u64) -> &'a Utxo {
+fn select_utxo(utxos: &[Utxo], min_balance: u64) -> &Utxo {
     let fee_payer = utxos.iter().find(|u| {
         u.amount[0].unit == "lovelace"
             && u.amount[0].quantity.parse::<u64>().unwrap() >= min_balance
@@ -554,8 +554,9 @@ mod test {
         let mut value0 = 0.into();
         let mut value1 = 0.into();
         for i in 0..31 {
-            value0 += num_bigint::BigInt::from(65 + i) << 8 * (31 - 1 - i);
-            value1 += num_bigint::BigInt::from(65 + i + 31) << 8 * (31 - 1 - i);
+            let shift = 8 * (31 - 1 - i);
+            value0 += num_bigint::BigInt::from(65 + i) << shift;
+            value1 += num_bigint::BigInt::from(65 + i + 31) << shift;
         }
         wtns.push(value0);
         wtns.push(value1);

@@ -350,6 +350,8 @@ struct CompletedJob {
 #[derive(Debug)]
 struct QueuedJob {
     id: JobID,
+    // TODO: This must be bound in the zk circuit, otherwise the proof could be reused.
+    #[allow(unused)]
     cardano_addr: String,
     publish: bool,
     vp_token: String,
