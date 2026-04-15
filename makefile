@@ -8,7 +8,7 @@ PTAU_SIZE_BLS12381 := 22
 .PHONY: bn254 .bls12381 r1cs r1cs-bls12381 init install_w2c2
 # Cryptographically relevant and expensive files we want to keep around.
 # Note that these are rule names.
-.PRECIOUS: %.zkey %.0001.zkey zkey/bn254/%.r1cs zkey/bls12-381/%.r1cs ptau/bn254_%.ptau ptau/bls12381_%.ptau
+.PRECIOUS: %.zkey %.0001.zkey zkey/bn254/%.r1cs zkey/bls12-381/%.r1cs ptau/bn254_%.ptau ptau/bls12381_%.ptau zkey/lib/libbn254_%.a zkey/lib/libbls12-381_%.a
 
 # Compile circuits for this curve and prepare everything for cargo run.
 # This includes a 1-person setup and can be quite slow for large circuits
@@ -121,10 +121,10 @@ target/w2c2 target/w2c2_includes/w2c2_base.h &:
 	scripts/install_w2c2.sh
 
 # Also outputs .h
-zkey/%.c: zkey/%.r1cs target/w2c2
+zkey/%.c zkey/%.h &: zkey/%.r1cs target/w2c2
 	scripts/run_w2c2.sh $< $@
 
-zkey/%.o: zkey/%.c target/w2c2_includes/w2c2_base.h
+zkey/%.o: zkey/%.c zkey/%.h target/w2c2_includes/w2c2_base.h
 	gcc -std=c99 -O3 -I target/w2c2_includes -c $< -o $@
 
 zkey/lib/libbn254_%.a: zkey/bn254/%.o
