@@ -1,6 +1,12 @@
+use std::io::ErrorKind;
+
 fn main() {
-    let mut libs: Vec<String> = std::fs::read_dir("zkey/lib")
-        .unwrap()
+    let dir = match std::fs::read_dir("zkey/lib") {
+        Ok(dir) => dir,
+        Err(e) if e.kind() == ErrorKind::NotFound => return,
+        Err(e) => panic!("Error while iterating zkey/lib: {e}"),
+    };
+    let mut libs: Vec<String> = dir
         .filter_map(|e| {
             let e = e.unwrap();
             if !e.file_type().unwrap().is_file() {
