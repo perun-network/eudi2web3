@@ -30,13 +30,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: rustup update 1.90 && rustup default 1.90
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo install --locked --git https://github.com/iden3/circom.git
       - run: npm install -g snarkjs
       - uses: aiken-lang/setup-aiken@v1
         with:
           version: v1.1.21
-      - uses: Swatinem/rust-cache@v2
       - name: make init
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
