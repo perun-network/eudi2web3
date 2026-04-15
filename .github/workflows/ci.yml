@@ -33,6 +33,9 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - run: cargo install --locked --git https://github.com/iden3/circom.git
       - run: npm install -g snarkjs
+      - uses: aiken-lang/setup-aiken@v1
+        with:
+          version: v1.1.21
       - uses: Swatinem/rust-cache@v2
       - name: make init
         run: |
