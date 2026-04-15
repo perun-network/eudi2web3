@@ -122,7 +122,7 @@ target/w2c2 target/w2c2_includes/w2c2_base.h &:
 
 # Also outputs .h
 zkey/%.c zkey/%.h &: zkey/%.r1cs target/w2c2
-	scripts/run_w2c2.sh $< $@
+	scripts/run_w2c2.sh $< zkey/$*.c
 
 zkey/%.o: zkey/%.c zkey/%.h target/w2c2_includes/w2c2_base.h
 	gcc -std=c99 -O3 -I target/w2c2_includes -c $< -o $@
