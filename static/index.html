@@ -90,6 +90,13 @@
               <p id="addr-error" class="form-error" style="display: none;" role="alert"></p>
             </div>
             <div class="form-group">
+              <label for="circuit" class="form-label">Circuit</label>
+              <select name="circuit" id="circuit" class="form-input" aria-describedby="circuit-help">
+                <option value="">Loading circuits...</option>
+              </select>
+              <p id="circuit-help" class="form-help-text">Select the zero-knowledge proof circuit to use for verification.</p>
+            </div>
+            <div class="form-group">
               <label class="form-checkbox-container">
                 <input type="checkbox" name="publish" id="publish" class="form-checkbox">
                 <span class="form-checkbox-checkmark"></span>

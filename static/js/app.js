@@ -1,6 +1,7 @@
 const form = document.getElementById("submit_request_form");
 const addrInput = document.getElementById("addr");
 const publishInput = document.getElementById("publish");
+const circuitInput = document.getElementById("circuit");
 const addrError = document.getElementById("addr-error");
 const step1Card = document.getElementById("step1-card");
 const outputDiv = document.getElementById("output");
@@ -128,6 +129,45 @@ function getRequestFailureMessage(error) {
   }
 
   return "Request failed. Please check your connection and try again.";
+}
+
+async function loadCircuits() {
+  try {
+    const response = await fetch("/api/circuits");
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const circuits = await response.json();
+    
+    // Clear the loading option
+    circuitInput.innerHTML = "";
+    
+    // Add a default option
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "Select a circuit...";
+    circuitInput.appendChild(defaultOption);
+    
+    // Add circuit options
+    circuits.forEach(circuit => {
+      const option = document.createElement("option");
+      // Create a unique identifier for the circuit
+      option.value = JSON.stringify(circuit.id);
+      // Create a user-friendly display name
+      option.textContent = `${circuit.id.circuit} (${circuit.id.curve}, ${circuit.id.contributions} contributions)`;
+      circuitInput.appendChild(option);
+    });
+    
+    // If there's only one circuit, select it by default
+    if (circuits.length === 1) {
+      circuitInput.selectedIndex = 1; // Select the first (and only) circuit
+    }
+    
+  } catch (error) {
+    console.error("Failed to load circuits:", error);
+    circuitInput.innerHTML = '<option value="">Failed to load circuits - using default</option>';
+  }
 }
 
 function getCurrentTheme() {
@@ -444,6 +484,7 @@ function initializeProofRequest() {
 
     const addr = form.addr.value.trim();
     const publish = form.publish.checked;
+    const circuitValue = form.circuit.value;
     form.addr.value = addr;
     setAddressError("");
 
@@ -459,14 +500,35 @@ function initializeProofRequest() {
       return;
     }
 
+    // Check if a circuit is selected (optional validation - backend has a default)
+    if (!circuitValue) {
+      // Could add validation here if required, but backend provides a default
+      console.log("No circuit selected, backend will use default");
+    }
+
     resetStepState();
     setButtonLoading(submitBtn, true);
 
     try {
+      // Prepare the request body
+      const requestBody = { addr, publish };
+      
+      // Include circuit if one is selected
+      if (circuitValue) {
+        try {
+          requestBody.circuit = JSON.parse(circuitValue);
+        } catch (error) {
+          console.error("Failed to parse circuit value:", error);
+          alert("Invalid circuit selection. Please try again.");
+          setButtonLoading(submitBtn, false);
+          return;
+        }
+      }
+
       const response = await fetch(form.action, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addr, publish }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -594,3 +656,6 @@ initializeCopyProof();
 initializeCopyParsed();
 initializeCopyPubInput();
 initializeSubmitTx();
+
+// Load available circuits when page loads
+loadCircuits();
