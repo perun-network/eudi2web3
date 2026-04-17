@@ -2,27 +2,29 @@ use std::{io::ErrorKind, io::Write};
 
 fn main() {
     // Get the list of witness generation .a files.
-    let dir = match std::fs::read_dir("zkey/lib") {
-        Ok(dir) => dir,
-        Err(e) if e.kind() == ErrorKind::NotFound => return,
+    let libs = match std::fs::read_dir("zkey/lib") {
+        Ok(dir) => {
+            let mut libs: Vec<String> = dir
+                .filter_map(|e| {
+                    let e = e.unwrap();
+                    if !e.file_type().unwrap().is_file() {
+                        return None;
+                    }
+                    let name = e.file_name();
+                    Some(
+                        name.to_str()?
+                            .strip_prefix("lib")?
+                            .strip_suffix(".a")?
+                            .to_string(),
+                    )
+                })
+                .collect();
+            libs.sort();
+            libs
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => vec![],
         Err(e) => panic!("Error while iterating zkey/lib: {e}"),
     };
-    let mut libs: Vec<String> = dir
-        .filter_map(|e| {
-            let e = e.unwrap();
-            if !e.file_type().unwrap().is_file() {
-                return None;
-            }
-            let name = e.file_name();
-            Some(
-                name.to_str()?
-                    .strip_prefix("lib")?
-                    .strip_suffix(".a")?
-                    .to_string(),
-            )
-        })
-        .collect();
-    libs.sort();
 
     // Tell cargo to link them and watch for changes in that directory.
     println!("cargo:rerun-if-changed=zkey/lib/");
