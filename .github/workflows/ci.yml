@@ -37,7 +37,7 @@ jobs:
           REV=$(git ls-remote https://github.com/vivianjeng/w2c2 HEAD | cut -f1)
           echo "rev=$REV" >> $GITHUB_OUTPUT
       - name: Cache w2c2
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             target/w2c2
