@@ -47,7 +47,7 @@ clean:
 # for convenience #
 ###################
 # For some reason the @# is load-bearing
-prep-release: circuit-bls12-381-sdjwt_es254_sha256_1claim circuit-bls12-381-minimal
+prep-release: circuit-bls12-381-minimal circuit-bls12-381-sdjwt_es256_sha256_1claim
 	@#
 prep-tests: circuit-bn254-minimal circuit-bls12-381-minimal
 	@#
