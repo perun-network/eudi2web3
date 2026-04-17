@@ -30,10 +30,12 @@ mod witness {
 // The implementation provided by circom-prover also spawns a separate thread for generating the
 // witness, which does not really make sense as it does nothing in paralell besides reading the
 // ZKey, which can be done once in the beginning as shown here.
+#[derive(Debug)]
 pub struct MultiuseProver {
     zkey: Key,
 }
 
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)] // 1840 vs 2544 bytes and we only have one instance
 enum Key {
     Bn254 {

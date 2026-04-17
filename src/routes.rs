@@ -15,6 +15,7 @@ use sha2::Digest as _;
 
 use crate::{
     AppState, Job, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof, pubinput2parsed,
+    witness::CircuitId,
 };
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
@@ -23,6 +24,7 @@ const REQUEST_PRIVKEY: &str = "/var/www/eudi2web3/fubar_privkey.pem";
 
 pub fn build_router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/circuits", get(circuits))
         .route("/submit_data", post(submit_data))
         .route("/vp_request/{id}", post(vp_request))
         .route("/vp_auth/{id}", post(vp_auth))
@@ -34,12 +36,30 @@ pub fn build_router() -> Router<Arc<AppState>> {
 struct SubmitDataRequest {
     addr: String,
     publish: bool,
+    circuit: Option<CircuitId>,
 }
 
 #[derive(Debug, Serialize)]
 struct SubmitDataResponse {
     url: String,
     id: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct CircuitInfo {
+    id: CircuitId,
+}
+
+async fn circuits(State(state): State<Arc<AppState>>) -> Json<Vec<CircuitInfo>> {
+    // We put it in a CircuitInfo to allow us to later add additional data for display that isn't
+    // needed for circuit identification.
+    Json(
+        state
+            .circuits
+            .keys()
+            .map(|id| CircuitInfo { id: id.clone() })
+            .collect(),
+    )
 }
 
 /// Submit the address as the first step (will request a credential presentation)
@@ -59,6 +79,11 @@ async fn submit_data(
     let id = state.jobs.lock().await.push(Job::Partial {
         cardano_addr: data.addr,
         publish: data.publish,
+        circuit: data.circuit.unwrap_or(CircuitId {
+            curve: "bls12-381".to_owned(),
+            circuit: "sdjwt_es256:sha256_1claim".to_owned(),
+            contributions: 1,
+        }),
     });
 
     let url = format!(
@@ -202,6 +227,7 @@ async fn vp_auth(
     let Job::Partial {
         cardano_addr,
         publish,
+        circuit,
     } = job
     else {
         unreachable!();
@@ -213,6 +239,8 @@ async fn vp_auth(
             cardano_addr,
             vp_token,
             publish,
+            // TODO: Let user select the circuit.
+            circuit,
         })
         .unwrap();
 
