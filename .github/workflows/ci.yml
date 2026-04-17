@@ -63,7 +63,7 @@ jobs:
         env:
           W2C2_REV: ${{ steps.w2c2.outputs.rev }}
         run: >
-          make prep-tests-bls12-381-minimal
+          make prep-tests
           PTAU_SIZE_BN254=05
           PTAU_SIZE_BLS12381=05
       # Note: This does not run slow tests or tests communicating with a cardano testnet.

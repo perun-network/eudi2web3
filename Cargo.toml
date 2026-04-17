@@ -55,10 +55,6 @@ pallas-addresses = "0.35.0"
 pallas-wallet = "0.35.0"
 
 [features]
-# Curve selection
-bls12-381 = []
-# For faster iteration times
-insecure-circuit = []
 # Test selection
 all-tests = ["slow-tests", "cardano-tests"]
 slow-tests = []     # Mainly the ones involving larger zk proofs

@@ -47,14 +47,15 @@ clean:
 # for convenience #
 ###################
 # For some reason the @# is load-bearing
-prep-lib-%-minimal: zkey/%/minimal.zkey zkey/bls12-381/minimal.cardano.json zkey/lib/lib%_minimal.a
+prep-release: circuit-bls12-381-sdjwt_es254_sha256_1claim circuit-bls12-381-minimal
 	@#
-prep-tests-%-minimal: prep-lib-%-minimal zkey/bls12-381/minimal.zkey
+prep-tests: circuit-bn254-minimal circuit-bls12-381-minimal
 	@#
-prep-lib-%-full: zkey/%/sdjwt_es256_sha256_1claim.zkey zkey/bls12-381/sdjwt_es256_sha256_1claim.cardano.json
+circuit-bn254-%: zkey/lib/libbn254_%.a zkey/bn254/%.0001.zkey
 	@#
-prep-tests-%-full: prep-lib-%-full zkey/bls12-381/sdjwt_es256_sha256_1claim.zkey
+circuit-bls12-381-%: zkey/lib/libbls12-381_%.a zkey/bls12-381/%.0001.zkey zkey/bls12-381/%.cardano.json
 	@#
+
 
 ##############
 # ptau files #

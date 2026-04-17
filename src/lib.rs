@@ -28,6 +28,8 @@ mod witness {
     // Contains non-mangled symbols called from C
     mod runtime;
 
+    pub type ComputeWitnessFn = fn(Vec<(String, Vec<BigInt>)>) -> Vec<BigInt>;
+
     /// Summary of a linked w2c2 .a file.
     #[derive(Debug)]
     struct LinkedLib {
@@ -35,7 +37,7 @@ mod witness {
         circuit: &'static str,
         // rust_witness macro generated code is generic and allows any iterator returning owned
         // data, but we need to store it here, so it must be a specific type.
-        compute_witness: fn(Vec<(String, Vec<BigInt>)>) -> Vec<BigInt>,
+        compute_witness: ComputeWitnessFn,
     }
 
     /// Used for circuit selection.
@@ -48,7 +50,7 @@ mod witness {
     /// Data/Config needed for processing, not used for circuit selection.
     #[derive(Debug)]
     pub struct CircuitEntry {
-        pub compute_witness: fn(Vec<(String, Vec<BigInt>)>) -> Vec<BigInt>,
+        pub compute_witness: ComputeWitnessFn,
         pub prover: Option<MultiuseProver>,
     }
 
@@ -114,6 +116,19 @@ mod witness {
 
         out
     }
+
+    impl CircuitId {
+        pub fn zkey_path(&self) -> String {
+            format!(
+                "zkey/{}/{}.{:04}.zkey",
+                self.curve, self.circuit, self.contributions
+            )
+        }
+        pub fn cardano_path(&self) -> String {
+            // TODO: This should also depend on the contributions. Update the makefile accordingly!
+            format!("zkey/{}/{}.cardano.json", self.curve, self.circuit)
+        }
+    }
 }
 
 pub mod publish {
@@ -126,14 +141,6 @@ mod routes;
 
 #[cfg(test)]
 mod sdjwt;
-
-// TODO: In the long run we might want to allow multiple curves + circuit variants
-
-// Not useful for the bn254 curve because that can't be verified on the cardano chain.
-#[cfg(feature = "insecure-circuit")]
-const SCRIPT_PATH: &str = "zkey/bls12-381/sdjwt_es256_sha256_1claim.cardano.json";
-#[cfg(not(feature = "insecure-circuit"))]
-const SCRIPT_PATH: &str = "zkey/bls12-381/minimal.cardano.json";
 
 // Configuration of the circuit (must be the same as in the circom file)
 const MAX_PAYLOAD_BYTES: usize = 4096; // JWT header + '.' + body + sha256 padding
@@ -504,10 +511,7 @@ pub async fn run_server() {
     println!("Loading {} zkeys ...", circuits.len());
     let t0 = Instant::now();
     for (id, e) in &mut circuits {
-        let zkey_path = format!(
-            "zkey/{}/{}.{:04}.zkey",
-            id.curve, id.circuit, id.contributions
-        );
+        let zkey_path = id.zkey_path();
         let t1 = Instant::now();
         let prover = MultiuseProver::new(&zkey_path).unwrap();
         e.prover = Some(prover);
@@ -547,6 +551,7 @@ fn start_workers(workers: NonZeroUsize, input: Receiver<QueuedJob>, state: Arc<A
                     state.update_job_queued(job.id, Job::Error(UserError::CircuitNotFound));
                     continue;
                 };
+
                 let t0 = Instant::now();
                 let res = compute_proof(circuit, &job);
                 print_execution_time("compute_proof finished", t0);
@@ -555,7 +560,10 @@ fn start_workers(workers: NonZeroUsize, input: Receiver<QueuedJob>, state: Arc<A
                         let s = state.clone();
                         rt.spawn(async move {
                             let t0 = Instant::now();
-                            let tx = Some(publish::cardano::publish(SCRIPT_PATH, &proof).await);
+                            let tx = Some(
+                                publish::cardano::publish(&job.circuit.cardano_path(), &proof)
+                                    .await,
+                            );
                             print_execution_time("cardano::publish finished", t0);
                             s.update_job_queued(
                                 job.id,
@@ -736,8 +744,8 @@ mod test {
     use std::time::Instant;
 
     use crate::{
-        MAX_VALUE_BYTES, ZKEY_PATH, presentation2input, print_execution_time,
-        prover::MultiuseProver, sdjwt, witness,
+        MAX_VALUE_BYTES, presentation2input, print_execution_time, prover::MultiuseProver, sdjwt,
+        witness::CircuitId,
     };
     use serde_json::json;
 
@@ -747,13 +755,42 @@ mod test {
     // It is also enabled when using -F insecure-circuit, as that makes the test way faster (0.159s).
     #[test]
     #[cfg_attr(
-        not(any(
-            all(feature = "slow-tests", not(debug_assertions)),
-            feature = "insecure-circuit"
-        )),
+        not(all(feature = "slow-tests", not(debug_assertions)),),
         ignore = "-F slow-tests --release"
     )]
-    fn compute_proof_using_generated_credential() {
+    fn compute_proof_using_generated_credential_bn254_full() {
+        compute_proof_using_generated_credential_inner(&CircuitId {
+            curve: "bn254".to_owned(),
+            circuit: "sdjwt_es254_sha256_1claim".to_owned(),
+            contributions: 1,
+        });
+    }
+    #[test]
+    fn compute_proof_using_generated_credential_bn254_minimal() {
+        compute_proof_using_generated_credential_inner(&CircuitId {
+            curve: "bn254".to_owned(),
+            circuit: "minimal".to_owned(),
+            contributions: 1,
+        });
+    }
+    #[test]
+    fn compute_proof_using_generated_credential_bls12381_minimal() {
+        compute_proof_using_generated_credential_inner(&CircuitId {
+            curve: "bls12-381".to_owned(),
+            circuit: "minimal".to_owned(),
+            contributions: 1,
+        });
+    }
+    fn compute_proof_using_generated_credential_inner(circuit: &CircuitId) {
+        let circuits = crate::witness::get_circuits();
+        let e = circuits.get(circuit).unwrap_or_else(|| {
+            match circuit.contributions {
+                0 => panic!("Trying to request circuit with no contributions (completely insecure proof system)"),
+                1 => panic!("Circuit not found, try running `make circuit-{}-{}`", circuit.curve, circuit.circuit),
+                _ => panic!("Requested circuit with more contributions than we have: {circuit:?}"),
+            }
+        });
+
         // Create a credential for testing
         let claims = json!({
             "sub": "6c5c0a49-b589-431d-bae7-219122a9ec2c",
@@ -797,7 +834,7 @@ mod test {
         // Setup prover and load key material
         println!("Loading zkey ...");
         let t0 = Instant::now();
-        let prover = MultiuseProver::new(ZKEY_PATH).unwrap();
+        let prover = MultiuseProver::new(&circuit.zkey_path()).unwrap();
         print_execution_time("ZKey loading finished", t0);
 
         // We test with hard coded issuer public key. In the long run this likely gets more complex.
@@ -810,7 +847,7 @@ mod test {
         // Build the input
         let t0 = Instant::now();
         let input = presentation2input(&presentation, issuer_pk).unwrap();
-        let input = [
+        let input = vec![
             ("in".to_owned(), input.input),
             ("value".to_owned(), input.value),
         ];
@@ -825,7 +862,7 @@ mod test {
 
         println!("INFO: Generating witness ...");
         let t0 = Instant::now();
-        let wit = witness::compute_witness(input);
+        let wit = (e.compute_witness)(input);
         print_execution_time("Witness generation finished", t0);
 
         println!("INFO: Generating proof ...");
