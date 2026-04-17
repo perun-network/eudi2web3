@@ -67,7 +67,7 @@ jobs:
           PTAU_SIZE_BN254=05
           PTAU_SIZE_BLS12381=05
       # Note: This does not run slow tests or tests communicating with a cardano testnet.
-      - run: cargo nextest run --locked --no-fail-fast --status-level all -F insecure-circuit -F bls12-381
+      - run: cargo nextest run --locked --no-fail-fast --status-level all
       - run: cargo test --doc --locked
 
   cardano-contract:
