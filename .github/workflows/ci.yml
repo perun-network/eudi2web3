@@ -50,10 +50,10 @@ jobs:
           curl -L -o circom https://github.com/iden3/circom/releases/download/v2.2.3/circom-linux-amd64
           chmod +x circom
           sudo mv circom /usr/local/bin/
-      - run: npm install -g snarkjs
-      - uses: aiken-lang/setup-aiken@v1
-        with:
-          version: v1.1.21
+      - run: |
+          npm install -g @aiken-lang/aikup snarkjs
+          aikup install
+          echo "/home/runner/.aiken/bin" >> $GITHUB_PATH
       - name: make init
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
@@ -74,9 +74,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: aiken-lang/setup-aiken@v1
-        with:
-          version: v1.1.21
+      - run: |
+          npm install -g @aiken-lang/aikup
+          aikup install
+          echo "/home/runner/.aiken/bin" >> $GITHUB_PATH
       - run: aiken fmt --check
         working-directory: verifier/cardano
       - run: aiken check -D
