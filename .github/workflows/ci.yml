@@ -73,7 +73,7 @@ jobs:
   cardano-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
       - uses: aiken-lang/setup-aiken@v1
         with:
           version: v1.1.21
