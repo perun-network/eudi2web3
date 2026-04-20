@@ -71,10 +71,8 @@ bus SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) {
 
 template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_depth, sdbytes, path_depth, do_crypto) {
     // Including the '.' separator, before base64 decoding
-    var MAX_HEADER_SIZE = 2048; // Sadly includes x5c (certificate chain)
     var MAX_KEY = 10;           // Maximum length of the claim's key name (only one segment for now)
     var MAX_VALUE_SIGNALS = 2;  // Maximum length of the claim value we're interested in (output)
-    var MAX_SD_BYTES = 96;
     var BYTES_PER_SIGNAL = 31;  // One signal can store 31 bytes.
 
     // TODO: Strictly speaking this should be based on key+value, which might be larger.
@@ -83,6 +81,11 @@ template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_dep
     // Base64 alignment: 3
     var MAX_BYTES = 9 + max_sd_entries * 47 + 3;
     MAX_BYTES = MAX_BYTES + (3-MAX_BYTES%3)%3; // Round up to multiple of 3
+
+    // `_"KEY": VALUE`
+    // Base64 alignment: 3
+    var MAX_BYTES_LAST = 5 + MAX_KEY + MAX_VALUE_SIGNALS * BYTES_PER_SIGNAL + 3;
+    MAX_BYTES_LAST = MAX_BYTES_LAST + (3-MAX_BYTES_LAST%3)%3; // Round up to multiple of 3
 
     var MAX_VALUE = MAX_VALUE_SIGNALS * BYTES_PER_SIGNAL;
 
@@ -101,8 +104,8 @@ template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_dep
 
     assert(MAX_BYTES % 3 == 0);
     var MAX_BASE64 = MAX_BYTES / 3 * 4;
-    assert(MAX_SD_BYTES % 3 == 0);
-    var MAX_SD_BASE64 = MAX_SD_BYTES / 3 * 4;
+    assert(MAX_BYTES_LAST % 3 == 0);
+    var MAX_SD_BASE64 = MAX_BYTES_LAST / 3 * 4;
 
     if (do_crypto != 0) {
         // Compute hash of JWT header+body
@@ -237,12 +240,12 @@ template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_dep
 
     // Extract the value
     // Here we can use V3 because we're always properly aligned to base64 blocks.
-    signal bytes2[MAX_SD_BYTES] <== bits2partialB64DecodeV3(sdbytes, MAX_SD_BASE64)(
+    signal bytes2[MAX_BYTES_LAST] <== bits2partialB64DecodeV3(sdbytes, MAX_SD_BASE64)(
         bits <== in.disclosures[0].data,
         offset <== in.disclosures[0].payloadOff
     );
-    signal aligned2[MAX_SD_BYTES] <== SliceFixedLenV2(MAX_SD_BYTES, MAX_SD_BYTES)(bytes2, in.disclosures[0].jsonAlign);
-    JsonCheckKeyValue(MAX_SD_BYTES, MAX_KEY, MAX_VALUE)(
+    signal aligned2[MAX_BYTES_LAST] <== SliceFixedLenV2(MAX_BYTES_LAST, MAX_BYTES_LAST)(bytes2, in.disclosures[0].jsonAlign);
+    JsonCheckKeyValue(MAX_BYTES_LAST, MAX_KEY, MAX_VALUE)(
         data <== aligned2,
         key <== key,
         key_length <== key_length,
