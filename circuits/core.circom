@@ -69,7 +69,7 @@ bus SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) {
 }
 
 
-template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_depth, sdbytes, path_depth, do_crypto) {
+template Core(header, payload_bytes, max_sd_entries, sd_depth, sdbytes, path_depth, do_crypto) {
     // Including the '.' separator, before base64 decoding
     var MAX_KEY = 10;           // Maximum length of the claim's key name (only one segment for now)
     var MAX_VALUE_SIGNALS = 2;  // Maximum length of the claim value we're interested in (output)
@@ -113,7 +113,7 @@ template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_dep
         // For payload_bytes=1024:   524.563 constraints (approx.)
         // For payload_bytes=2048: 1.049.364 constraints (approx.)
         // For payload_bytes=4096: 2.098.965 constraints (approx.)
-        signal hash_bin[256] <== Sha256General(payload_bytes*8)(
+        signal hash_bin0[256] <== Sha256General(payload_bytes*8)(
             paddedIn <== in.payload,
             paddedInLength <== in.payloadLength
         );
@@ -127,12 +127,12 @@ template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_dep
 
         // Check signature
         // Regardless of configuration: 2.220.351 constraints
-        signal hash[6] <== BEBits2Limbs()(hash_bin);
+        signal hash0[6] <== BEBits2Limbs()(hash_bin0);
         var valid = ecdsa__ECDSAVerifyNoPubkeyCheck(43, 6)(
             r <== in.sig.r, 
             s <== in.sig.s,
             pubkey <== in.pk,
-            msghash <== hash
+            msghash <== hash0
         );
         assert(valid);
         valid === 1;
@@ -216,21 +216,21 @@ template SDJWT_ES256_SHA256_1claim(header, payload_bytes, max_sd_entries, sd_dep
         // For payload_bytes=1024:   524.563 constraints (approx.)
         // For payload_bytes=2048: 1.049.364 constraints (approx.)
         // For payload_bytes=4096: 2.098.965 constraints (approx.)
-        signal hash_bin[256] <== Sha256General(sdbytes*8)(
+        signal hash_bin1[256] <== Sha256General(sdbytes*8)(
             paddedIn <== in.disclosures[0].data,
             paddedInLength <== in.disclosures[0].length
         );
 
         // Check if hash matches
         for (var i = 0; i < 32; i++) {
-            var sum = hash_bin[8*i] * 128
-                + hash_bin[8*i+1] * 64
-                + hash_bin[8*i+2] * 32
-                + hash_bin[8*i+3] * 16
-                + hash_bin[8*i+4] * 8
-                + hash_bin[8*i+5] * 4
-                + hash_bin[8*i+6] * 2
-                + hash_bin[8*i+7];
+            var sum = hash_bin1[8*i] * 128
+                + hash_bin1[8*i+1] * 64
+                + hash_bin1[8*i+2] * 32
+                + hash_bin1[8*i+3] * 16
+                + hash_bin1[8*i+4] * 8
+                + hash_bin1[8*i+5] * 4
+                + hash_bin1[8*i+6] * 2
+                + hash_bin1[8*i+7];
             sdb64.out[i] === sum;
             assert(sdb64.out[i] == sum);
         }
