@@ -251,7 +251,8 @@ template SDJWT_ES256_SHA256_1claim(payload_bytes, sd_depth, sdbytes, path_depth)
     for (var s = 0; s < MAX_VALUE_SIGNALS; s++) {
         var sum = 0;
         for (var i = 0; i < BYTES_PER_SIGNAL; i++) {
-            sum += value[BYTES_PER_SIGNAL*s + i] << (8*(BYTES_PER_SIGNAL-i-1));
+            var factor = 1 << (8*(BYTES_PER_SIGNAL-i-1));
+            sum += value[BYTES_PER_SIGNAL*s + i] * factor;
         }
         value_compressed[s] <== sum;
     }
