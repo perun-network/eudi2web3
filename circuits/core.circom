@@ -253,53 +253,16 @@ template Core(header, payload_bytes, max_sd_entries, disclosures, sdbytes, path_
         // sep <== 58 // ':'
     );
 
-    value_compressed[0] <== 1;
-    value_compressed[1] <== 1;
-
     // Compress value for more compact verification keys and proofs.
-    //for (var s = 0; s < MAX_VALUE_SIGNALS; s++) {
-        // var sum = 0;
-        // for (var i = 0; i < BYTES_PER_SIGNAL; i++) {
-        //     var factor = 1 << (8*(BYTES_PER_SIGNAL-i-1));
-        //     sum += value[BYTES_PER_SIGNAL*s + i] * factor;
-        // }
-        // value_compressed[s] <== sum;
-
-        // Alternative implementation that avoids linear combination detection and an ICE in circom.
-        //assert(BYTES_PER_SIGNAL == 31);
-        // value_compressed[s] <== 
-            // value[31*s + 30] * (1 << (8*0));
-            //value[31*s + 29] * (1 << (8*1)) + 
-            //value[31*s + 28] * (1 << (8*2)) + 
-            //value[31*s + 27] * (1 << (8*3)) + 
-            //value[31*s + 26] * (1 << (8*4)) + 
-            //value[31*s + 25] * (1 << (8*5)) + 
-            //value[31*s + 24] * (1 << (8*6)) + 
-            //value[31*s + 23] * (1 << (8*7)) + 
-            //value[31*s + 22] * (1 << (8*8)) + 
-            //value[31*s + 21] * (1 << (8*9)) + 
-            //value[31*s + 20] * (1 << (8*10)) + 
-            //value[31*s + 19] * (1 << (8*11)) + 
-            //value[31*s + 18] * (1 << (8*12)) + 
-            //value[31*s + 17] * (1 << (8*13)) + 
-            //value[31*s + 16] * (1 << (8*14)) + 
-            //value[31*s + 15] * (1 << (8*15)) + 
-            //value[31*s + 14] * (1 << (8*16)) + 
-            //value[31*s + 13] * (1 << (8*17)) + 
-            //value[31*s + 12] * (1 << (8*18)) + 
-            //value[31*s + 11] * (1 << (8*19)) + 
-            //value[31*s + 10] * (1 << (8*20)) + 
-            // value[31*s + 9] * (1 << (8*21)) + 
-            // value[31*s + 8] * (1 << (8*22)) + 
-            // value[31*s + 7] * (1 << (8*23)) + 
-            // value[31*s + 6] * (1 << (8*24)) + 
-            // value[31*s + 5] * (1 << (8*25)) + 
-            // value[31*s + 4] * (1 << (8*26)) + 
-            // value[31*s + 3] * (1 << (8*27)) + 
-            // value[31*s + 2] * (1 << (8*28)) + 
-            // value[31*s + 1] * (1 << (8*29)) + 
-            // value[31*s + 0] * (1 << (8*30));
-    //}
+    for (var s = 0; s < MAX_VALUE_SIGNALS; s++) {
+        var sum = 0;
+        for (var i = 0; i < BYTES_PER_SIGNAL; i++) {
+            var factor = 1 << (8*(BYTES_PER_SIGNAL-i-1));
+            sum += value[BYTES_PER_SIGNAL*s + i] * factor;
+        }
+        log(sum);
+        value_compressed[s] <== sum;
+    }
 
     // TODO: Make the circuit flexible and allow all of the following:
     // - No SD (claim direct in root object)
