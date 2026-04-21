@@ -79,8 +79,9 @@ template Core(header, payload_bytes, max_sd_entries, disclosures, sdbytes, path_
     // Header: `_"_sd": [`
     // Per Entry: `"<43-characters", `
     // Base64 alignment: 3
+    // NOTE: V6 requires a stronger alignment: 4 base64 blocks (16 bytes)
     var MAX_BYTES = 9 + max_sd_entries * 47 + 3;
-    MAX_BYTES = MAX_BYTES + (3-MAX_BYTES%3)%3; // Round up to multiple of 3
+    MAX_BYTES = MAX_BYTES + (12-MAX_BYTES%12)%12; // Round up to multiple of 4*3
 
     // `_"KEY": VALUE`
     // Base64 alignment: 3
