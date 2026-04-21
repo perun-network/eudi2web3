@@ -2,6 +2,21 @@ CIRCOM_SRC := $(shell find circuits -type d -name 'test*' -prune -o -type f -nam
 AK_FILES := $(wildcard verifier/cardano/validators/*.ak)
 SHELL := /usr/bin/env bash
 
+# Built with prep-release, those are supposed to always be included in builds
+RELEASE_TARGETS := \
+	circuit-bls12-381-small_nocrypto \
+	circuit-bls12-381-sdjwt_es256_sha256_1claim
+# Build with prep-tests, those are expected to be present for cargo test.
+TEST_TARGETS := \
+	circuit-bn254-minimal \
+	circuit-bls12-381-minimal \
+	circuit-bn254-small_nocrypto \
+	circuit-bn254-witness_test
+# Build with prep-tests-slow, those are expected to be present for cargo test -F slow-tests --release
+SLOW_TEST_TARGETS := \
+	circuit-bn254-sdjwt_es256_sha256_1claim \
+	circuit-bls12-381-small
+
 PTAU_SIZE_BN254 := 22
 PTAU_SIZE_BLS12381 := 22
 
@@ -9,25 +24,6 @@ PTAU_SIZE_BLS12381 := 22
 # Cryptographically relevant and expensive files we want to keep around.
 # Note that these are rule names.
 .PRECIOUS: %.zkey %.0001.zkey zkey/bn254/%.r1cs zkey/bls12-381/%.r1cs ptau/bn254_%.ptau ptau/bls12381_%.ptau zkey/lib/libbn254_%.a zkey/lib/libbls12-381_%.a
-
-# Compile circuits for this curve and prepare everything for cargo run.
-# This includes a 1-person setup and can be quite slow for large circuits
-
-# bn254: PTAU = ptau/bn254_22.ptau
-# bn254: CURVE = bn128 # circom uses a different naming scheme
-# bn254: zkey/.curve-bn254 zkey/sdjwt_es256_sha256_1claim.r1cs zkey/sdjwt_es256_sha256_1claim.zkey
-# 
-# # I haven't generated a large enough ptau file yet, so for testing this curve I'm using a smaller one
-# bls12381: PTAU = ptau/bls12381_22.ptau
-# bls12381: CURVE = bls12381
-# bls12381: zkey/.curve-bls12381 zkey/sdjwt_es256_sha256_1claim.r1cs zkey/sdjwt_es256_sha256_1claim.zkey
-# 
-# # Build all r1cs files but don't make the zkeys
-# r1cs: CURVE = bn128 # circom uses a different naming scheme
-# r1cs: zkey/sdjwt_es256_sha256_1claim.r1cs
-# 
-# r1cs-bls12381: CURVE = bls12381
-# r1cs-bls12381: zkey/sdjwt_es256_sha256_1claim.r1cs
 
 # Prepare the repo:
 # - initialize submodules
@@ -47,10 +43,13 @@ clean:
 # for convenience #
 ###################
 # For some reason the @# is load-bearing
-prep-release: circuit-bls12-381-minimal circuit-bls12-381-sdjwt_es256_sha256_1claim
+prep-release: $(RELEASE_TARGETS)
 	@#
-prep-tests: circuit-bn254-minimal circuit-bls12-381-minimal circuit-bn254-small_nocrypto circuit-bn254-witness_test
+prep-tests: $(TEST_TARGETS)
 	@#
+prep-tests-slow: prep-tests $(SLOW_TEST_TARGETS)
+	@#
+# Shorthand so we don't need to repeat ourselves for generating the most common combinations
 circuit-bn254-%: zkey/lib/libbn254_%.a zkey/bn254/%.0001.zkey
 	@#
 circuit-bls12-381-%: zkey/lib/libbls12-381_%.a zkey/bls12-381/%.0001.zkey zkey/bls12-381/%.cardano.json
