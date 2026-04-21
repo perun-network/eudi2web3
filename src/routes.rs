@@ -56,8 +56,14 @@ async fn circuits(State(state): State<Arc<AppState>>) -> Json<Vec<CircuitInfo>> 
     Json(
         state
             .circuits
-            .keys()
-            .map(|id| CircuitInfo { id: id.clone() })
+            .iter()
+            .filter_map(|(id, e)| {
+                if e.params.is_some() {
+                    Some(CircuitInfo { id: id.clone() })
+                } else {
+                    None
+                }
+            })
             .collect(),
     )
 }

@@ -21,14 +21,18 @@ kHmPRiazukxPLb6ilpRAewjW8nihRANCAATDskChT+Altkm9X7MI69T3IUmrQU0L
 -----END PRIVATE KEY-----
 ";
 
-fn new_credential(claims: serde_json::Value, sd_strategy: SDStrategy) -> Result<String> {
+fn new_credential(
+    claims: serde_json::Value,
+    sd_strategy: SDStrategy,
+    add_decoy_claims: bool,
+) -> Result<String> {
     let issuer_key = EncodingKey::from_ec_pem(ISSUER_PRIVATE).unwrap();
     let mut issuer = SDJWTIssuer::new(issuer_key, Some("ES256".to_owned()));
     Ok(issuer.issue_sd_jwt(
         claims,
         sd_strategy,
         None,
-        true,
+        add_decoy_claims,
         SDJWTSerializationFormat::Compact,
     )?)
 }
@@ -37,8 +41,9 @@ pub fn new_presentation(
     claims: serde_json::Value,
     sd_strategy: SDStrategy,
     claims_to_disclose: serde_json::Map<String, serde_json::Value>,
+    add_decoy_claims: bool,
 ) -> Result<String> {
-    let credential = new_credential(claims, sd_strategy)?;
+    let credential = new_credential(claims, sd_strategy, add_decoy_claims)?;
     to_presentation(credential, claims_to_disclose)
 }
 

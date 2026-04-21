@@ -49,7 +49,7 @@ clean:
 # For some reason the @# is load-bearing
 prep-release: circuit-bls12-381-minimal circuit-bls12-381-sdjwt_es256_sha256_1claim
 	@#
-prep-tests: circuit-bn254-minimal circuit-bls12-381-minimal
+prep-tests: circuit-bn254-minimal circuit-bls12-381-minimal circuit-bn254-small_nocrypto circuit-bn254-witness_test
 	@#
 circuit-bn254-%: zkey/lib/libbn254_%.a zkey/bn254/%.0001.zkey
 	@#
