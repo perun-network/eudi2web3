@@ -38,7 +38,7 @@ bus Location {
     signal hash_offset;   // Offset to the entry in _sd.
 }
 
-bus SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) {
+bus SDJWT(payload_bytes, ndisclosures, sdbytes, path_depth) {
     // @type: u128
     signal pk[2][6];                     // Issuer public key
     Signature sig;                                  // Part 1.3
@@ -47,7 +47,7 @@ bus SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) {
     signal payload[payload_bytes*8];       // Part 1.(1+2):    base64(jwt_header) + '.' + base64(jwt_body)
     // @type: u64
     signal payloadLength;
-    Disclosure(sdbytes) disclosures[sd_depth];        // Part 2-n:        base64(json(disclosure_entry))
+    Disclosure(sdbytes) disclosures[ndisclosures];        // Part 2-n:        base64(json(disclosure_entry))
 
     // Additional information (unless we compute- that in witness generation)
     // @type: u64
@@ -69,7 +69,7 @@ bus SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) {
 }
 
 
-template Core(header, payload_bytes, max_sd_entries, sd_depth, sdbytes, path_depth, do_crypto) {
+template Core(header, payload_bytes, max_sd_entries, disclosures, sdbytes, path_depth, do_crypto) {
     // Including the '.' separator, before base64 decoding
     var MAX_KEY = 10;           // Maximum length of the claim's key name (only one segment for now)
     var MAX_VALUE_SIGNALS = 2;  // Maximum length of the claim value we're interested in (output)
@@ -89,7 +89,7 @@ template Core(header, payload_bytes, max_sd_entries, sd_depth, sdbytes, path_dep
 
     var MAX_VALUE = MAX_VALUE_SIGNALS * BYTES_PER_SIGNAL;
 
-    input SDJWT(payload_bytes, sd_depth, sdbytes, path_depth) in;
+    input SDJWT(payload_bytes, disclosures, sdbytes, path_depth) in;
     signal input value[MAX_VALUE]; // 0-padded
     // Big endian, aligned to the LSB
     signal output value_compressed[MAX_VALUE_SIGNALS]; // Compressed representation for the verifier
@@ -190,7 +190,6 @@ template Core(header, payload_bytes, max_sd_entries, sd_depth, sdbytes, path_dep
 
     // TODO: Handle the offset that was required for base64.
     signal aligned[MAX_BYTES] <== SliceFixedLenV2(MAX_BYTES, MAX_BYTES)(bytes, in.jsonAlign);
-
 
     // PERFORMANCE: These two functions are pretty similar. We could try to write one that can do both.
     // We can't just use JsonCheckKeyValue because it outputs the entire array (even more wasteful) and
