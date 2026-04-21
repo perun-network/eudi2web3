@@ -45,7 +45,7 @@ fn main() {
     // Add code for using the w2c2 generated code.
     for (curve, circuit) in &linked {
         let name = curve.to_string() + circuit;
-        let name = name.replace('-', "");
+        let name = name.replace(['-', '_'], "");
         writeln!(f, "rust_witness::witness!({name});").unwrap();
         // Because we store it in a const &[] we need a shim/wrapper function to convert it into a
         // non-generic function. Closures don't work either.
@@ -60,7 +60,7 @@ fn main() {
     writeln!(f, "\nconst LINKED: &[LinkedLib] = &[").unwrap();
     for (curve, circuit) in &linked {
         let name = curve.to_string() + circuit;
-        let name = name.replace('-', "");
+        let name = name.replace(['-', '_'], "");
         writeln!(
             f,
             "    LinkedLib {{ curve: {curve:?}, circuit: {circuit:?}, compute_witness: {name}_shim }},"
