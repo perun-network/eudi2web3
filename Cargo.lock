@@ -662,7 +662,7 @@ dependencies = [
 [[package]]
 name = "circom-prover"
 version = "0.1.4"
-source = "git+https://github.com/zkmopro/mopro?branch=bls-script#2d986e8f1e950482cf31c7db9870663673fac102"
+source = "git+https://github.com/zkmopro/mopro?branch=bls-script#31c3b168a7586f0857b1f733e2500375fc9204c0"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -2394,7 +2394,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3207,7 +3207,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

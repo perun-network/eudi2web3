@@ -162,7 +162,6 @@ fn compute_proof_using_generated_credential_inner(
 
 /// Useful to test if the bls proof validity bug still exists.
 #[test]
-#[ignore = "unfixed upstream bug"]
 fn proof_validity_bls12381_mux() {
     run_proof_with_witness_gen2(
         Curve::Bls12381,
