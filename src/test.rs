@@ -1,8 +1,11 @@
 use std::time::Instant;
 
 use crate::{
-    presentation2input, print_execution_time, prover::MultiuseProver, sdjwt,
-    str2binary_sha2padding, witness::CircuitId, zeropad_str,
+    presentation2input, print_execution_time,
+    prover::{MultiuseProver, Prover, SnarkjsProver},
+    sdjwt, str2binary_sha2padding,
+    witness::CircuitId,
+    zeropad_str,
 };
 use num_bigint::BigInt;
 use serde_json::json;
@@ -161,13 +164,22 @@ fn compute_proof_using_generated_credential_inner(
     ];
     print_execution_time("Input preparation finished", t0);
 
-    run_proof_with_witness_gen(circuit, input);
+    let prover = MultiuseProver::new(&circuit.zkey_path()).unwrap();
+    run_proof_with_witness_gen(circuit, prover, input);
 }
 
 /// Useful to test if the bls proof validity bug still exists.
 #[test]
 fn proof_validity_bls12381_blsbug1() {
-    run_proof_with_witness_gen2(
+    run_proof_with_witness_gen_multiuse(
+        Curve::Bls12381,
+        "blsbug1",
+        vec![("in".to_owned(), vec![42.into()])],
+    );
+}
+#[test]
+fn proof_validity_bls12381_blsbug1_snarkjs() {
+    run_proof_with_witness_gen_snarkjs(
         Curve::Bls12381,
         "blsbug1",
         vec![("in".to_owned(), vec![42.into()])],
@@ -175,16 +187,25 @@ fn proof_validity_bls12381_blsbug1() {
 }
 #[test]
 fn proof_validity_bn254_blsbug1() {
-    run_proof_with_witness_gen2(
+    run_proof_with_witness_gen_multiuse(
         Curve::Bn254,
         "blsbug1",
         vec![("in".to_owned(), vec![42.into()])],
     );
 }
+
 #[test]
 #[ignore = "upstream bug: https://github.com/zkmopro/mopro/issues/697"]
 fn proof_validity_bls12381_blsbug2() {
-    run_proof_with_witness_gen2(
+    run_proof_with_witness_gen_multiuse(
+        Curve::Bls12381,
+        "blsbug2",
+        vec![("in".to_owned(), zeropad_str("DEAD", BLSBUG2_PAYLOAD_BYTES))],
+    );
+}
+#[test]
+fn proof_validity_bls12381_blsbug2_snarkjs() {
+    run_proof_with_witness_gen_snarkjs(
         Curve::Bls12381,
         "blsbug2",
         vec![("in".to_owned(), zeropad_str("DEAD", BLSBUG2_PAYLOAD_BYTES))],
@@ -192,16 +213,31 @@ fn proof_validity_bls12381_blsbug2() {
 }
 #[test]
 fn proof_validity_bn254_blsbug2() {
-    run_proof_with_witness_gen2(
+    run_proof_with_witness_gen_multiuse(
         Curve::Bn254,
         "blsbug2",
         vec![("in".to_owned(), zeropad_str("DEAD", BLSBUG2_PAYLOAD_BYTES))],
     );
 }
+
 #[test]
 #[ignore = "upstream bug: https://github.com/zkmopro/mopro/issues/697"]
 fn proof_validity_bls12381_blsbug3() {
-    run_proof_with_witness_gen2(
+    run_proof_with_witness_gen_multiuse(
+        Curve::Bls12381,
+        "blsbug3",
+        vec![
+            (
+                "in".to_owned(),
+                str2binary_sha2padding("DEADBEEF", BLSBUG3_PAYLOAD_BYTES).0,
+            ),
+            ("dotSep".to_owned(), vec![5.into()]),
+        ],
+    );
+}
+#[test]
+fn proof_validity_bls12381_blsbug3_snarkjs() {
+    run_proof_with_witness_gen_snarkjs(
         Curve::Bls12381,
         "blsbug3",
         vec![
@@ -215,7 +251,7 @@ fn proof_validity_bls12381_blsbug3() {
 }
 #[test]
 fn proof_validity_bn254_blsbug3() {
-    run_proof_with_witness_gen2(
+    run_proof_with_witness_gen_multiuse(
         Curve::Bn254,
         "blsbug3",
         vec![
@@ -227,9 +263,10 @@ fn proof_validity_bn254_blsbug3() {
         ],
     );
 }
+
 #[test]
 fn proof_validity_bls12381_minimal() {
-    run_proof_with_witness_gen2(
+    run_proof_with_witness_gen_multiuse(
         Curve::Bls12381,
         "minimal",
         vec![
@@ -239,30 +276,38 @@ fn proof_validity_bls12381_minimal() {
     );
 }
 
-fn run_proof_with_witness_gen2(curve: Curve, circuit: &str, input: Vec<(String, Vec<BigInt>)>) {
-    run_proof_with_witness_gen(
-        &CircuitId {
-            curve: curve.to_string(),
-            circuit: circuit.to_owned(),
-            contributions: 1,
-        },
-        input,
-    );
+fn run_proof_with_witness_gen_multiuse(
+    curve: Curve,
+    circuit: &str,
+    input: Vec<(String, Vec<BigInt>)>,
+) {
+    let id = CircuitId {
+        curve: curve.to_string(),
+        circuit: circuit.to_owned(),
+        contributions: 1,
+    };
+    let prover = MultiuseProver::new(&id.zkey_path()).unwrap();
+    run_proof_with_witness_gen(&id, prover, input);
 }
-fn run_proof_with_witness_gen(circuit: &CircuitId, input: Vec<(String, Vec<BigInt>)>) {
-    let circuits = crate::witness::get_circuits();
-    let e = circuits
-        .get(circuit)
-        .unwrap_or_else(|| match circuit.contributions {
-            0 => panic!(
-                "Trying to request circuit with no contributions (completely insecure proof system)"
-            ),
-            1 => panic!(
-                "Circuit not found, try running `make circuit-{}-{}`",
-                circuit.curve, circuit.circuit
-            ),
-            _ => panic!("Requested circuit with more contributions than we have: {circuit:?}"),
-        });
+fn run_proof_with_witness_gen_snarkjs(
+    curve: Curve,
+    circuit: &str,
+    input: Vec<(String, Vec<BigInt>)>,
+) {
+    let id = CircuitId {
+        curve: curve.to_string(),
+        circuit: circuit.to_owned(),
+        contributions: 1,
+    };
+    let prover = SnarkjsProver::new(id.zkey_path(), curve.to_string()).unwrap();
+    run_proof_with_witness_gen(&id, prover, input);
+}
+fn run_proof_with_witness_gen(
+    circuit: &CircuitId,
+    prover: impl Prover,
+    input: Vec<(String, Vec<BigInt>)>,
+) {
+    let e = crate::witness::get_circuit(circuit).unwrap();
 
     println!("INFO: Generating witness ...");
     let t0 = Instant::now();
@@ -271,12 +316,11 @@ fn run_proof_with_witness_gen(circuit: &CircuitId, input: Vec<(String, Vec<BigIn
 
     println!("{:?}", &wit[..200.min(wit.len())]);
 
-    run_proof(&circuit.zkey_path(), wit);
+    run_proof(prover, wit);
 }
-fn run_proof(zkey_path: &str, wit: Vec<BigInt>) {
+fn run_proof(prover: impl Prover, wit: Vec<BigInt>) {
     println!("Loading zkey ...");
     let t0 = Instant::now();
-    let prover = MultiuseProver::new(zkey_path).unwrap();
     print_execution_time("ZKey loading finished", t0);
 
     println!("INFO: Generating proof ...");

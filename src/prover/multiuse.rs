@@ -15,7 +15,7 @@ use circom_prover::prover::{
 use num_bigint::{BigInt, BigUint};
 use rand::thread_rng;
 
-use crate::prover::ProofWithPubInput;
+use crate::prover::{ProofWithPubInput, Prover};
 
 // Generated code to go from input to witness.
 mod witness {
@@ -77,8 +77,10 @@ impl MultiuseProver {
 
         Ok(Self { zkey })
     }
+}
 
-    pub fn verify(&self, proof: &ProofWithPubInput) -> Result<bool> {
+impl Prover for MultiuseProver {
+    fn verify(&self, proof: &ProofWithPubInput) -> Result<bool> {
         // Verify the proof so we know it is actually useful/correct
         // For some reason loading the zkey with bls is really slow. To avoid doing that every time
         // we need to re-implement some code from circom_prover.
@@ -94,15 +96,7 @@ impl MultiuseProver {
         // )
     }
 
-    #[allow(unused)]
-    pub fn prove(&self, witness: Vec<BigInt>) -> Result<(ProofWithPubInput, bool)> {
-        let proof = self.prove_noverify(witness)?;
-        let valid = self.verify(&proof)?;
-
-        Ok((proof, valid))
-    }
-
-    pub fn prove_noverify(&self, witness: Vec<BigInt>) -> Result<ProofWithPubInput> {
+    fn prove_noverify(&self, witness: Vec<BigInt>) -> Result<ProofWithPubInput> {
         // PERFORMANCE: This does mean we take up a bit more peak memory:
         //     public input, witness, transformed witness
         // but less memory during proof generation:

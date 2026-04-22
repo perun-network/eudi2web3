@@ -14,7 +14,10 @@ use serde::Serialize;
 use sha2::Digest;
 use tokio::net::{TcpListener, UnixListener};
 
-use crate::witness::{CircuitEntry, CircuitId, CircuitParams};
+use crate::{
+    prover::{Prover, SnarkjsProver},
+    witness::{CircuitEntry, CircuitId, CircuitParams},
+};
 
 // Generated code to go from input to witness.
 mod witness;
@@ -23,11 +26,29 @@ pub mod publish {
     pub mod cardano;
 }
 mod prover {
+    use anyhow::Result;
+    use num_bigint::BigInt;
+
     mod common;
     mod multiuse;
+    mod snarkjs;
 
     pub use common::{ProofWithPubInput, SnarkjsProof};
     pub use multiuse::MultiuseProver;
+    pub use snarkjs::SnarkjsProver;
+
+    pub trait Prover: std::fmt::Debug + Send + Sync {
+        fn verify(&self, proof: &ProofWithPubInput) -> Result<bool>;
+        /// It is up to the prover implementation whether this verifies the proof.
+        fn prove_noverify(&self, witness: Vec<BigInt>) -> Result<ProofWithPubInput>;
+        #[allow(unused)]
+        fn prove(&self, witness: Vec<BigInt>) -> Result<(ProofWithPubInput, bool)> {
+            let proof = self.prove_noverify(witness)?;
+            let valid = self.verify(&proof)?;
+
+            Ok((proof, valid))
+        }
+    }
 }
 
 mod keyfinder;
@@ -255,41 +276,6 @@ fn witness2txt(wit: &[BigInt], path: impl AsRef<Path>) {
     }
     f.flush().unwrap();
 }
-fn witness2wtns(wit: &[BigInt], path: impl AsRef<Path>) {
-    let prime = BigInt::parse_bytes(
-        b"21888242871839275222246405745257275088696311157297823662689037894645226208583",
-        // b"21888242871839275222246405745257275088548364400416034343698204186575808495617",
-        10,
-    )
-    .unwrap();
-    let (sign, mut prime) = prime.to_bytes_be();
-    assert_ne!(sign, num_bigint::Sign::Minus);
-    prime.resize(32, 0);
-    let prime: [u8; 32] = prime.try_into().unwrap();
-    let wtns_file = WtnsFile {
-        version: 2,
-        header: wtns_file::Header {
-            field_size: 32,
-            prime: prime.into(),
-            witness_len: wit.len() as u32,
-        },
-        witness: wtns_file::Witness(
-            wit.iter()
-                .map(|v| {
-                    let (sign, mut v) = v.to_bytes_be();
-                    assert_ne!(sign, num_bigint::Sign::Minus);
-                    v.resize(32, 0);
-                    let v: [u8; 32] = v.try_into().unwrap();
-                    v.into()
-                })
-                .collect(),
-        ),
-    };
-    let mut f = std::fs::File::create(path).unwrap();
-    wtns_file.write(&mut f).unwrap();
-    f.flush().unwrap();
-    drop(f);
-}
 */
 
 #[derive(Debug)]
@@ -412,13 +398,23 @@ pub async fn run_server() {
 
     let mut circuits = witness::get_circuits();
 
+    // TODO: This is not ideal as it blocks the entire API, but I didn't want to bother with lazy loading
+    // of the provers, yet.
     println!("Loading {} zkeys ...", circuits.len());
     let t0 = Instant::now();
     for (id, e) in &mut circuits {
         let zkey_path = id.zkey_path();
         let t1 = Instant::now();
-        let prover = MultiuseProver::new(&zkey_path).unwrap();
+        let prover: Box<dyn Prover> = match id.curve.as_str() {
+            "bn254" => Box::new(MultiuseProver::new(&zkey_path).unwrap()),
+            "bls12381" | "bls12-381" => {
+                Box::new(SnarkjsProver::new(zkey_path.clone(), id.curve.clone()).unwrap())
+            }
+            _ => panic!("Unknown curve"),
+        };
         e.prover = Some(prover);
+        // Not really useful for bls when SnarkjsProver is used, but I prefer having the full list
+        // of circuits logged at startup.
         print_execution_time(&zkey_path, t1);
     }
     print_execution_time("ZKey loading finished", t0);

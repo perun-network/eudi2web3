@@ -1,6 +1,9 @@
+use std::{io::Write, path::Path};
+
 use anyhow::Result;
 use circom_prover::prover::circom::{G1, G2, Proof};
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
+use wtns_file::WtnsFile;
 
 #[derive(Debug)]
 pub struct ProofWithPubInput {
@@ -26,8 +29,10 @@ impl ProofWithPubInput {
             .collect()
     }
 
-    #[allow(unused)]
-    pub fn from_snarkjs_files(proof_path: &str, pubinput_path: &str) -> Result<Self> {
+    pub fn from_snarkjs_files(
+        proof_path: impl AsRef<Path>,
+        pubinput_path: impl AsRef<Path>,
+    ) -> Result<Self> {
         let f = std::fs::File::open(proof_path)?;
         let proof: SnarkjsProof = serde_json::from_reader(f)?;
 
@@ -102,4 +107,51 @@ impl<'a> From<&'a ProofWithPubInput> for SnarkjsProof {
             ],
         }
     }
+}
+
+pub fn write_wtns_file(curve: &str, wit: &[BigInt], path: impl AsRef<Path>) -> Result<()> {
+    let (prime_dec, field_size) = match curve {
+        // https://docs.rs/ark-bn254/latest/ark_bn254/
+        "bn254" => (
+            b"21888242871839275222246405745257275088696311157297823662689037894645226208583"
+                .as_slice(),
+            32,
+        ),
+        // https://docs.rs/ark-bls12-381/latest/ark_bls12_381/
+        "bls12381" | "bls12-381" => (
+            b"52435875175126190479447740508185965837690552500527637822603658699938581184513"
+                .as_slice(),
+            48,
+        ),
+        _ => panic!("Unknown curve: {curve}"),
+    };
+    let prime = BigInt::parse_bytes(prime_dec, 10).unwrap();
+    let (sign, mut prime) = prime.to_bytes_le();
+    assert_ne!(sign, num_bigint::Sign::Minus);
+    prime.resize(32, 0);
+    let prime: [u8; 32] = prime.try_into().unwrap();
+    let wtns_file = WtnsFile {
+        version: 2,
+        header: wtns_file::Header {
+            field_size,
+            prime: prime.into(),
+            witness_len: wit.len() as u32,
+        },
+        witness: wtns_file::Witness(
+            wit.iter()
+                .map(|v| {
+                    let (sign, mut v) = v.to_bytes_be();
+                    assert_ne!(sign, num_bigint::Sign::Minus);
+                    v.resize(32, 0);
+                    let v: [u8; 32] = v.try_into().unwrap();
+                    v.into()
+                })
+                .collect(),
+        ),
+    };
+    let mut f = std::fs::File::create(path)?;
+    wtns_file.write(&mut f)?;
+    f.flush()?;
+    drop(f);
+    Ok(())
 }

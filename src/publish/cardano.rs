@@ -510,7 +510,7 @@ mod test {
     use super::*;
     use crate::{
         MAX_VALUE_BYTES,
-        prover::{MultiuseProver, ProofWithPubInput},
+        prover::{MultiuseProver, ProofWithPubInput, Prover},
     };
 
     #[test]

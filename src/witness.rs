@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 
-use crate::prover::MultiuseProver;
+use crate::prover::Prover;
 
 // Contains non-mangled symbols called from C
 mod runtime;
@@ -33,7 +33,7 @@ pub struct CircuitId {
 #[derive(Debug)]
 pub struct CircuitEntry {
     pub compute_witness: ComputeWitnessFn,
-    pub prover: Option<MultiuseProver>,
+    pub prover: Option<Box<dyn Prover>>,
     pub params: Option<CircuitParams>,
 }
 
@@ -111,6 +111,13 @@ pub fn get_circuits() -> HashMap<CircuitId, CircuitEntry> {
     }
 
     out
+}
+
+// Not the most efficient implementation but it works.
+#[cfg(test)]
+pub(crate) fn get_circuit(id: &CircuitId) -> Option<CircuitEntry> {
+    let mut circuits = get_circuits();
+    circuits.remove(id)
 }
 
 impl CircuitId {
