@@ -65,7 +65,7 @@ jobs:
         run: >
           make prep-tests
           PTAU_SIZE_BN254=17
-          PTAU_SIZE_BLS12381=05
+          PTAU_SIZE_BLS12381=10
       # Note: This does not run slow tests or tests communicating with a cardano testnet.
       - run: cargo nextest run --locked --no-fail-fast --status-level all
       - run: cargo test --doc --locked
