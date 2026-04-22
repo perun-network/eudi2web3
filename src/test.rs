@@ -3,7 +3,22 @@ use std::time::Instant;
 use crate::{
     presentation2input, print_execution_time, prover::MultiuseProver, sdjwt, witness::CircuitId,
 };
+use num_bigint::BigInt;
 use serde_json::json;
+
+enum Curve {
+    Bn254,
+    Bls12381,
+}
+
+impl std::fmt::Display for Curve {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Curve::Bn254 => "bn254",
+            Curve::Bls12381 => "bls12-381",
+        })
+    }
+}
 
 fn normal_claims() -> serde_json::Value {
     json!({
@@ -120,12 +135,6 @@ fn compute_proof_using_generated_credential_inner(
     sdjwt::verify_presentation_lib(presentation.clone()).unwrap();
     sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
 
-    // Setup prover and load key material
-    println!("Loading zkey ...");
-    let t0 = Instant::now();
-    let prover = MultiuseProver::new(&circuit.zkey_path()).unwrap();
-    print_execution_time("ZKey loading finished", t0);
-
     // We test with hard coded issuer public key. In the long run this likely gets more complex.
     let issuer_pk = pem::parse(crate::ISSUER_PUBLIC).unwrap();
     let issuer_pk = issuer_pk.contents();
@@ -148,12 +157,64 @@ fn compute_proof_using_generated_credential_inner(
     ];
     print_execution_time("Input preparation finished", t0);
 
-    let input_str = input
-        .iter()
-        .map(|(k, v)| (k, v.iter().map(|n| n.to_string()).collect::<Vec<String>>()))
-        .collect::<std::collections::HashMap<_, _>>();
-    let input_str = serde_json::to_string(&input_str).unwrap();
-    std::fs::write("input.json", input_str).unwrap();
+    run_proof_with_witness_gen(circuit, input);
+}
+
+/// Useful to test if the bls proof validity bug still exists.
+#[test]
+#[ignore = "unfixed upstream bug"]
+fn proof_validity_bls12381_mux() {
+    run_proof_with_witness_gen2(
+        Curve::Bls12381,
+        "mux",
+        vec![("in".to_owned(), vec![42.into()])],
+    );
+}
+#[test]
+fn proof_validity_bn254_mux() {
+    run_proof_with_witness_gen2(
+        Curve::Bn254,
+        "mux",
+        vec![("in".to_owned(), vec![42.into()])],
+    );
+}
+#[test]
+fn proof_validity_bls12381_minimal() {
+    run_proof_with_witness_gen2(
+        Curve::Bls12381,
+        "minimal",
+        vec![
+            ("value_compressed".to_owned(), vec![42.into(), 42.into()]),
+            ("valid".to_owned(), vec![65.into()]),
+        ],
+    );
+}
+
+fn run_proof_with_witness_gen2(curve: Curve, circuit: &str, input: Vec<(String, Vec<BigInt>)>) {
+    run_proof_with_witness_gen(
+        &CircuitId {
+            curve: curve.to_string(),
+            circuit: circuit.to_owned(),
+            contributions: 1,
+        },
+        input,
+    );
+}
+fn run_proof_with_witness_gen(circuit: &CircuitId, input: Vec<(String, Vec<BigInt>)>) {
+    let circuits = crate::witness::get_circuits();
+    dbg!(&circuits);
+    let e = circuits
+        .get(circuit)
+        .unwrap_or_else(|| match circuit.contributions {
+            0 => panic!(
+                "Trying to request circuit with no contributions (completely insecure proof system)"
+            ),
+            1 => panic!(
+                "Circuit not found, try running `make circuit-{}-{}`",
+                circuit.curve, circuit.circuit
+            ),
+            _ => panic!("Requested circuit with more contributions than we have: {circuit:?}"),
+        });
 
     println!("INFO: Generating witness ...");
     let t0 = Instant::now();
@@ -161,6 +222,14 @@ fn compute_proof_using_generated_credential_inner(
     print_execution_time("Witness generation finished", t0);
 
     println!("{:?}", &wit[..200.min(wit.len())]);
+
+    run_proof(&circuit.zkey_path(), wit);
+}
+fn run_proof(zkey_path: &str, wit: Vec<BigInt>) {
+    println!("Loading zkey ...");
+    let t0 = Instant::now();
+    let prover = MultiuseProver::new(zkey_path).unwrap();
+    print_execution_time("ZKey loading finished", t0);
 
     println!("INFO: Generating proof ...");
     let t0 = Instant::now();
