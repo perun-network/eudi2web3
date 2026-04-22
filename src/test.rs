@@ -1,7 +1,8 @@
 use std::time::Instant;
 
 use crate::{
-    presentation2input, print_execution_time, prover::MultiuseProver, sdjwt, witness::CircuitId,
+    presentation2input, print_execution_time, prover::MultiuseProver, sdjwt,
+    str2binary_sha2padding, witness::CircuitId,
 };
 use num_bigint::BigInt;
 use serde_json::json;
@@ -10,6 +11,8 @@ enum Curve {
     Bn254,
     Bls12381,
 }
+
+const BLSBUG2_PAYLOAD_BYTES: usize = 1024;
 
 impl std::fmt::Display for Curve {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -162,19 +165,48 @@ fn compute_proof_using_generated_credential_inner(
 
 /// Useful to test if the bls proof validity bug still exists.
 #[test]
-fn proof_validity_bls12381_mux() {
+fn proof_validity_bls12381_blsbug1() {
     run_proof_with_witness_gen2(
         Curve::Bls12381,
-        "mux",
+        "blsbug1",
         vec![("in".to_owned(), vec![42.into()])],
     );
 }
 #[test]
-fn proof_validity_bn254_mux() {
+fn proof_validity_bn254_blsbug1() {
     run_proof_with_witness_gen2(
         Curve::Bn254,
-        "mux",
+        "blsbug1",
         vec![("in".to_owned(), vec![42.into()])],
+    );
+}
+#[test]
+fn proof_validity_bls12381_blsbug2() {
+    run_proof_with_witness_gen2(
+        Curve::Bls12381,
+        "blsbug2",
+        vec![
+            (
+                "in".to_owned(),
+                str2binary_sha2padding("DEAD.BEEF", BLSBUG2_PAYLOAD_BYTES).0,
+            ),
+            ("dotSep".to_owned(), vec![5.into()]),
+        ],
+    );
+}
+#[test]
+#[ignore = "upstream bug: https://github.com/zkmopro/mopro/issues/697"]
+fn proof_validity_bn254_blsbug2() {
+    run_proof_with_witness_gen2(
+        Curve::Bn254,
+        "blsbug2",
+        vec![
+            (
+                "in".to_owned(),
+                str2binary_sha2padding("DEAD.BEEF", BLSBUG2_PAYLOAD_BYTES).0,
+            ),
+            ("dotSep".to_owned(), vec![5.into()]),
+        ],
     );
 }
 #[test]
@@ -201,7 +233,6 @@ fn run_proof_with_witness_gen2(curve: Curve, circuit: &str, input: Vec<(String, 
 }
 fn run_proof_with_witness_gen(circuit: &CircuitId, input: Vec<(String, Vec<BigInt>)>) {
     let circuits = crate::witness::get_circuits();
-    dbg!(&circuits);
     let e = circuits
         .get(circuit)
         .unwrap_or_else(|| match circuit.contributions {
