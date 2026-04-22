@@ -5,6 +5,7 @@ SHELL := /usr/bin/env bash
 # Built with prep-release, those are supposed to always be included in builds
 RELEASE_TARGETS := \
 	circuit-bls12-381-small_nocrypto \
+	circuit-bls12-381-small \
 	circuit-bls12-381-sdjwt_es256_sha256_1claim
 # Build with prep-tests, those are expected to be present for cargo test.
 TEST_TARGETS := \
