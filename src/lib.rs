@@ -22,9 +22,15 @@ mod witness;
 pub mod publish {
     pub mod cardano;
 }
+mod prover {
+    mod common;
+    mod multiuse;
+
+    pub use common::{ProofWithPubInput, SnarkjsProof};
+    pub use multiuse::MultiuseProver;
+}
 
 mod keyfinder;
-mod prover;
 mod routes;
 
 #[cfg(test)]
