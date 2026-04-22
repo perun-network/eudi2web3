@@ -110,11 +110,25 @@ extern "C" fn runtime__printErrorMessage(_arg: *const c_void) {
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-extern "C" fn circuit_runtime__exceptionHandler(circuit_name: *const c_char, _arg: *const c_void) {
+extern "C" fn circuit_runtime__exceptionHandler(
+    circuit_name: *const c_char,
+    _instance: *const c_void,
+    code: u32,
+) {
     // SAFETY: Our codegen always sets this to a const string.
     let circuit_name = unsafe { CStr::from_ptr(circuit_name) };
     let circuit_name = circuit_name.to_string_lossy();
-    eprintln!("[{circuit_name}] exceptionHandler called")
+    // See https://github.com/iden3/snarkjs/blob/9a8f1c0083d18b9b5e18f526cfd729e7259423be/test/circuit2/circuit_js/witness_calculator.cjs#L21
+    let code = match code {
+        1 => "Signal not found".to_owned(),
+        2 => "Too many signals set".to_owned(),
+        3 => "Signal already set".to_owned(),
+        4 => "Assert failed".to_owned(),
+        5 => "not enough memory".to_owned(),
+        6 => "Input signal array access exceeds the size".to_owned(),
+        _ => format!("Unknown: {code}"),
+    };
+    eprintln!("[{circuit_name}] exceptionHandler called: {code}")
 }
 
 #[unsafe(no_mangle)]

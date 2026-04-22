@@ -1,10 +1,10 @@
 // Implemented in Rust
-void circuit_runtime__exceptionHandler(char* circuit_name, void* arg);
+void circuit_runtime__exceptionHandler(char* circuit_name, void* instance, unsigned int code);
 void circuit_log_signal(char* circuit_name, void* instance, unsigned int len, unsigned int *data);
 void circuit_log_message(char* circuit_name, void* instance, int type, char* message);
 
-void XXXX_runtime__exceptionHandler(void* arg, unsigned int signal) {
-    circuit_runtime__exceptionHandler("YYYY", arg);
+void XXXX_runtime__exceptionHandler(void* instance, unsigned int code) {
+    circuit_runtime__exceptionHandler("YYYY", instance, code);
 }
 void XXXX_runtime__printErrorMessage(void* instance) {
     // Get the message (for simplicity truncate long messages)
