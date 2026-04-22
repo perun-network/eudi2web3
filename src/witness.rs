@@ -83,7 +83,7 @@ pub fn get_circuits() -> HashMap<CircuitId, CircuitEntry> {
                 continue;
             }
             let Some((circuit, contributions)) = base.rsplit_once('.') else {
-                eprintln!("Skipping zkey without contributions number");
+                eprintln!("Skipping zkey without contributions number: {name}");
                 continue;
             };
             // PERFORMANCE: We are potentially wasting a bunch of work here.
