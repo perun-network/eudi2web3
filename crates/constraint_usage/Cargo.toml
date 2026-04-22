@@ -1,0 +1,8 @@
+[package]
+name = "constraint_usage"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+r1cs-file = "0.3"
+

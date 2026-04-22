@@ -84,13 +84,13 @@ zkey/bn254/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
 	mkdir -p zkey/bn254
 	@echo -e "\x1b[96mCompiling $*\x1b[0m"
 	@# circom uses a different naming scheme
-	time circom $< -l circuits -o zkey/bn254 --r1cs --wasm -p bn128
+	time circom $< -l circuits -o zkey/bn254 --r1cs --wasm -p bn128 --sym
 	cargo clean -p eudi2web3
 
 zkey/bls12-381/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
 	mkdir -p zkey/bls12-381
 	@echo -e "\x1b[96mCompiling $*\x1b[0m"
-	time circom $< -l circuits -o zkey/bls12-381 --r1cs --wasm -p bls12381
+	time circom $< -l circuits -o zkey/bls12-381 --r1cs --wasm -p bls12381 --sym
 	cargo clean -p eudi2web3
 
 zkey/bn254/%.0000.zkey: zkey/bn254/%.r1cs ptau/bn254_$(PTAU_SIZE_BN254).ptau
@@ -106,7 +106,6 @@ zkey/bls12-381/%.0000.zkey: zkey/bls12-381/%.r1cs ptau/bls12-381_$(PTAU_SIZE_BLS
 	@# See https://rekt.news/default-settings
 	@# See https://blog.zksecurity.xyz/posts/groth16-setup-exploit/
 	time NODE_OPTIONS="--max-old-space-size=8192" snarkjs zkey contribute $< $@ --entropy "$(SNARKJS_ENTROPY)"
-
 %.zkey: %.0001.zkey
 	ln -sfn $(notdir $<) $@
 

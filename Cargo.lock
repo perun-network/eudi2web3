@@ -708,6 +708,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "constraint_usage"
+version = "0.1.0"
+dependencies = [
+ "r1cs-file",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2164,6 +2171,15 @@ name = "r-efi"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
+
+[[package]]
+name = "r1cs-file"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebca3c911be03b44e77daff45a6afb885ce10364823a32a7ff45f04829466db8"
+dependencies = [
+ "byteorder",
+]
 
 [[package]]
 name = "rand"
