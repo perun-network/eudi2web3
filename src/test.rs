@@ -46,7 +46,7 @@ fn compute_proof_using_generated_credential_bn254_full() {
     compute_proof_using_generated_credential_inner(
         &CircuitId {
             curve: "bn254".to_owned(),
-            circuit: "sdjwt_es254_sha256_1claim".to_owned(),
+            circuit: "sdjwt_es256_sha256_1claim".to_owned(),
             contributions: 1,
         },
         normal_claims(),
