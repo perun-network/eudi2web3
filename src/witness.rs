@@ -132,8 +132,8 @@ fn circuit_params(name: &str) -> Option<CircuitParams> {
     match name {
         "sdjwt_es256_sha256_1claim" => Some(CircuitParams {
             header: 2048,
-            payload: 4096,
-            sd_entries: 10,
+            payload: 3072,
+            sd_entries: 5,
             disclosures: 1,
             sdbytes: 256,
             path_depth: 1,
