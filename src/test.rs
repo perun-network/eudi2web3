@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::{
     presentation2input, print_execution_time, prover::MultiuseProver, sdjwt,
-    str2binary_sha2padding, witness::CircuitId,
+    str2binary_sha2padding, witness::CircuitId, zeropad_str,
 };
 use num_bigint::BigInt;
 use serde_json::json;
@@ -12,7 +12,8 @@ enum Curve {
     Bls12381,
 }
 
-const BLSBUG2_PAYLOAD_BYTES: usize = 1024;
+const BLSBUG2_PAYLOAD_BYTES: usize = 8;
+const BLSBUG3_PAYLOAD_BYTES: usize = 64;
 
 impl std::fmt::Display for Curve {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -181,29 +182,46 @@ fn proof_validity_bn254_blsbug1() {
     );
 }
 #[test]
+#[ignore = "upstream bug: https://github.com/zkmopro/mopro/issues/697"]
 fn proof_validity_bls12381_blsbug2() {
     run_proof_with_witness_gen2(
         Curve::Bls12381,
         "blsbug2",
+        vec![("in".to_owned(), zeropad_str("DEAD", BLSBUG2_PAYLOAD_BYTES))],
+    );
+}
+#[test]
+fn proof_validity_bn254_blsbug2() {
+    run_proof_with_witness_gen2(
+        Curve::Bn254,
+        "blsbug2",
+        vec![("in".to_owned(), zeropad_str("DEAD", BLSBUG2_PAYLOAD_BYTES))],
+    );
+}
+#[test]
+#[ignore = "upstream bug: https://github.com/zkmopro/mopro/issues/697"]
+fn proof_validity_bls12381_blsbug3() {
+    run_proof_with_witness_gen2(
+        Curve::Bls12381,
+        "blsbug3",
         vec![
             (
                 "in".to_owned(),
-                str2binary_sha2padding("DEAD.BEEF", BLSBUG2_PAYLOAD_BYTES).0,
+                str2binary_sha2padding("DEADBEEF", BLSBUG3_PAYLOAD_BYTES).0,
             ),
             ("dotSep".to_owned(), vec![5.into()]),
         ],
     );
 }
 #[test]
-#[ignore = "upstream bug: https://github.com/zkmopro/mopro/issues/697"]
-fn proof_validity_bn254_blsbug2() {
+fn proof_validity_bn254_blsbug3() {
     run_proof_with_witness_gen2(
         Curve::Bn254,
-        "blsbug2",
+        "blsbug3",
         vec![
             (
                 "in".to_owned(),
-                str2binary_sha2padding("DEAD.BEEF", BLSBUG2_PAYLOAD_BYTES).0,
+                str2binary_sha2padding("DEAD.BEEF", BLSBUG3_PAYLOAD_BYTES).0,
             ),
             ("dotSep".to_owned(), vec![5.into()]),
         ],

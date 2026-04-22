@@ -13,9 +13,11 @@ TEST_TARGETS := \
 	circuit-bn254-witness_test \
 	circuit-bn254-blsbug1 \
 	circuit-bn254-blsbug2 \
+	circuit-bn254-blsbug3 \
 	circuit-bls12-381-minimal \
 	circuit-bls12-381-blsbug1 \
-	circuit-bls12-381-blsbug2
+	circuit-bls12-381-blsbug2 \
+	circuit-bls12-381-blsbug3
 # Build with prep-tests-slow, those are expected to be present for cargo test -F slow-tests --release
 SLOW_TEST_TARGETS := \
 	circuit-bn254-sdjwt_es256_sha256_1claim \
