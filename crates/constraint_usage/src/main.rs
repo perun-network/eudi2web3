@@ -17,7 +17,7 @@ const BN_FS: usize = 32;
 fn main() {
     let mut wirenames = vec![];
 
-    let r1cs = args().skip(1).next().unwrap();
+    let r1cs = args().nth(1).unwrap();
     eprintln!("Processing symbols");
     let syms = r1cs.replacen("r1cs", "sym", 1);
     let syms = File::open(&syms).unwrap();

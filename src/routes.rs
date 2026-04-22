@@ -207,8 +207,6 @@ async fn vp_auth(
     Path(id): Path<u64>,
     Form(data): Form<AuthData>,
 ) -> Result<(), StatusCode> {
-    dbg!("auth");
-
     // Check if we got valid data
     let mut vp_token: VpToken = serde_json::from_str(&data.vp_token).map_err(|_| {
         println!("Wallet response is unexpected json: {}", data.vp_token);
@@ -249,8 +247,6 @@ async fn vp_auth(
             circuit,
         })
         .unwrap();
-
-    dbg!(&state);
 
     Ok(())
 }
