@@ -10,7 +10,7 @@ use crossbeam::channel::Receiver;
 use num_bigint::{BigInt, BigUint};
 use num_traits::cast::ToPrimitive;
 use prover::{MultiuseProver, ProofWithPubInput};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tokio::net::{TcpListener, UnixListener};
 
@@ -73,6 +73,29 @@ C/edCMRM78P8eQTBCDUTK1ywSYaszvQZvneiW6gNtWEJndSreEcyyUdVvg==
 -----END PUBLIC KEY-----
 ";
 
+// https://github.com/eu-digital-identity-wallet/eudi-app-android-wallet-ui/tree/4826899e09dcfc17d1aac792ca2759eba0106d5d/resources-logic/src/main/res/raw
+#[allow(unused)]
+const ISSUER_CA_UT02: &[u8] = b"
+-----BEGIN CERTIFICATE-----
+MIIC3TCCAoOgAwIBAgIUEwybFc9Jw+az3r188OiHDaxCfHEwCgYIKoZIzj0EAwMw
+XDEeMBwGA1UEAwwVUElEIElzc3VlciBDQSAtIFVUIDAyMS0wKwYDVQQKDCRFVURJ
+IFdhbGxldCBSZWZlcmVuY2UgSW1wbGVtZW50YXRpb24xCzAJBgNVBAYTAlVUMB4X
+DTI1MDMyNDIwMjYxNFoXDTM0MDYyMDIwMjYxM1owXDEeMBwGA1UEAwwVUElEIElz
+c3VlciBDQSAtIFVUIDAyMS0wKwYDVQQKDCRFVURJIFdhbGxldCBSZWZlcmVuY2Ug
+SW1wbGVtZW50YXRpb24xCzAJBgNVBAYTAlVUMFkwEwYHKoZIzj0CAQYIKoZIzj0D
+AQcDQgAEesDKj9rCIcrGj0wbSXYvCV953bOPSYLZH5TNmhTz2xa7VdlvQgQeGZRg
+1PrF5AFwt070wvL9qr1DUDdvLp6a1qOCASEwggEdMBIGA1UdEwEB/wQIMAYBAf8C
+AQAwHwYDVR0jBBgwFoAUYseURyi9D6IWIKeawkmURPEB08cwEwYDVR0lBAwwCgYI
+K4ECAgAAAQcwQwYDVR0fBDwwOjA4oDagNIYyaHR0cHM6Ly9wcmVwcm9kLnBraS5l
+dWRpdy5kZXYvY3JsL3BpZF9DQV9VVF8wMi5jcmwwHQYDVR0OBBYEFGLHlEcovQ+i
+FiCnmsJJlETxAdPHMA4GA1UdDwEB/wQEAwIBBjBdBgNVHRIEVjBUhlJodHRwczov
+L2dpdGh1Yi5jb20vZXUtZGlnaXRhbC1pZGVudGl0eS13YWxsZXQvYXJjaGl0ZWN0
+dXJlLWFuZC1yZWZlcmVuY2UtZnJhbWV3b3JrMAoGCCqGSM49BAMDA0gAMEUCIQCe
+4R9rO4JhFp821kO8Gkb8rXm4qGG/e5/Oi2XmnTQqOQIgfFs+LDbnP2/j1MB4rwZ1
+FgGdpr4oyrFB9daZyRIcP90=
+-----END CERTIFICATE-----
+";
+
 #[derive(Debug)]
 struct CircuitInput {
     input: Vec<BigInt>,
@@ -90,12 +113,12 @@ enum UserError {
     UnexpectedSigLen,
     UnknownErrorInvalidProof,
     CircuitNotFound,
+    UnsupportedSigAlg,
 }
 
 fn presentation2input(
     params: CircuitParams,
     presentation: &str,
-    issuer_pk: [u8; 64],
 ) -> Result<CircuitInput, UserError> {
     // Get the relevant data from the credential to pass to input
     let mut segments = presentation.split('~');
@@ -112,6 +135,44 @@ fn presentation2input(
     if sig.len() != 64 {
         return Err(UserError::UnexpectedSigLen);
     }
+
+    // For now we consider the issuer to be public data and trusted. In the long term we probably
+    // want to verify it against the root certificate(s), and ideally the validity of the
+    // certificate chain would be proven by the zk circuit (expensive).
+    // TODO: Don't just assume we have a valid chain (ISSUER_CA_UT02)
+    // TODO: Ideally prove the chain is valid.
+    // For now: Extract the pubkey and assume it is trusted.
+    // SECURITY: This is of course not secure.
+    let header_json = BASE64_URL_SAFE_NO_PAD
+        .decode(header)
+        .map_err(|_| UserError::BadJwtFormat)?;
+    let header_decoded: Header =
+        serde_json::from_slice(&header_json).map_err(|_| UserError::BadJwtFormat)?;
+    if header_decoded.alg != "ES256" {
+        return Err(UserError::UnsupportedSigAlg);
+    }
+    let issuer_pk = match header_decoded.x5c.last() {
+        Some(leaf_cert) => {
+            // PERFORMANCE: There are better ways to do this, pem::parse just strips away this text
+            // and base64 decodes it (ASN.1 / DER).
+            let leaf_cert_pem =
+                format!("-----BEGIN CERTIFICATE-----\n{leaf_cert}\n-----END CERTIFICATE-----");
+            let issuer_pk = pem::parse(leaf_cert_pem).unwrap();
+            let issuer_pk = issuer_pk.contents();
+            let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
+            assert_eq!(issuer_pk[0], 0x04);
+            let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
+            issuer_pk
+        }
+        None => {
+            let issuer_pk = pem::parse(ISSUER_PUBLIC).unwrap();
+            let issuer_pk = issuer_pk.contents();
+            let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
+            assert_eq!(issuer_pk[0], 0x04);
+            let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
+            issuer_pk
+        }
+    };
 
     // Find the message offset for the key we are interested in.
     let body_json = BASE64_URL_SAFE_NO_PAD
@@ -247,6 +308,13 @@ fn presentation2input(
         .collect(),
         value: zeropad_str(&value, MAX_VALUE_BYTES),
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct Header {
+    alg: String,
+    #[serde(default)]
+    x5c: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -494,21 +562,13 @@ fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPub
 
     let prover = circuit.prover.as_ref().unwrap();
 
-    // TODO: We need to use the correct issuer (e.g. allow multiple)
-    // We test with hard coded issuer public key. In the long run this likely gets more complex.
-    let issuer_pk = pem::parse(ISSUER_PUBLIC).unwrap();
-    let issuer_pk = issuer_pk.contents();
-    let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
-    assert_eq!(issuer_pk[0], 0x04);
-    let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
-
     // Circuit input format is not compatible, so we report InvalidCircuit, even though we know the
     // circuit itself.
     let params = circuit.params.ok_or(UserError::CircuitNotFound)?;
 
     // Build the input
     let t0 = Instant::now();
-    let input = presentation2input(params, &job.vp_token, issuer_pk)?;
+    let input = presentation2input(params, &job.vp_token)?;
     let input = vec![
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),

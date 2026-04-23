@@ -142,19 +142,11 @@ fn compute_proof_using_generated_credential_inner(
     sdjwt::verify_presentation_lib(presentation.clone()).unwrap();
     sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
 
-    // We test with hard coded issuer public key. In the long run this likely gets more complex.
-    let issuer_pk = pem::parse(crate::ISSUER_PUBLIC).unwrap();
-    let issuer_pk = issuer_pk.contents();
-    let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
-    assert_eq!(issuer_pk[0], 0x04);
-    let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
-
     // Build the input
     let t0 = Instant::now();
     let input = presentation2input(
         e.params.expect("circuit has no params configured"),
         &presentation,
-        issuer_pk,
     )
     .unwrap();
     dbg!(&input.value);
