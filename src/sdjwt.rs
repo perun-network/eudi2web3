@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
+use base64::{
+    Engine,
+    prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD},
+};
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use ring::signature::ECDSA_P256_SHA256_FIXED;
 use sd_jwt_rs::{
@@ -10,6 +13,7 @@ use sd_jwt_rs::{
 };
 use serde::Deserialize;
 use sha2::Digest as _;
+use x509_parser::prelude::{FromDer, X509Certificate};
 
 use super::ISSUER_PUBLIC;
 
@@ -59,10 +63,13 @@ fn to_presentation(
     Ok(presentation)
 }
 
-pub fn verify_presentation_lib(presentation: String) -> Result<serde_json::Value> {
+pub fn verify_presentation_lib(
+    presentation: String,
+    issuer_pem: Vec<u8>,
+) -> Result<serde_json::Value> {
     let verified_claims = SDJWTVerifier::new(
         presentation,
-        Box::new(move |_, _| DecodingKey::from_ec_pem(ISSUER_PUBLIC).unwrap()),
+        Box::new(move |_, _| DecodingKey::from_ec_pem(&issuer_pem).unwrap()),
         None,
         None,
         SDJWTSerializationFormat::Compact,
@@ -123,12 +130,6 @@ pub fn explain(presentation: &str) {
 // NOTE: This implementation only supports objects being part of the claim path. Not array
 // indicies, though those can be added if required.
 pub fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_json::Value> {
-    // We do need the issuer public key from somewhere, and it probably has to be in the public
-    // input in some form. Convert it to the right format (there are probably better/more reliable ways)
-    let key = pem::parse(ISSUER_PUBLIC).unwrap();
-    let key = key.contents();
-    let key = &key[key.len() - 65..];
-
     // Decode outer format (can happen outside of ZK and be passed as lengths).
     // Sadly, the signature is over `header.body`, so we keep them as one for now.
     let mut segments = presentation.split('~');
@@ -138,9 +139,34 @@ pub fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_jso
         .rsplit_once('.')
         .expect("header.body.sig");
     let (header, body) = message.split_once('.').unwrap();
+
+    let header_json = BASE64_URL_SAFE_NO_PAD.decode(header).unwrap();
+    let header_decoded: crate::Header = serde_json::from_slice(&header_json).unwrap();
+    let key: [u8; 65] = match header_decoded.x5c.last() {
+        Some(leaf_cert) => {
+            dbg!(&leaf_cert);
+            let der = BASE64_STANDARD.decode(leaf_cert).unwrap();
+            let (_, cert) = X509Certificate::from_der(&der).unwrap();
+            let pk = cert.public_key().subject_public_key.as_ref();
+            assert_eq!(pk.len(), 65);
+            pk.try_into().unwrap()
+        }
+        None => {
+            // We do need the issuer public key from somewhere, and it probably has to be in the public
+            // input in some form. Convert it to the right format (there are probably better/more reliable ways)
+            let key = pem::parse(ISSUER_PUBLIC).unwrap();
+            let key = key.contents();
+            key[key.len() - 65..].try_into().unwrap()
+        }
+    };
+
+    let segments: Vec<&str> = segments.collect();
     // Collect all disclosure entries and make them easy to find by key. Can happen outside of ZK
     // as long as the ZK circuit checks that the key is correct.
-    let segments: HashMap<String, &str> = segments
+    // Every sd entry is followed by a `~`. And in the end we may have an additional JWT.
+    // That last one can be used to verify freshness, for now we just ignore it.
+    let segments: HashMap<String, &str> = segments[..segments.len() - 1]
+        .iter()
         .filter_map(|s| {
             if s.is_empty() {
                 return None;
@@ -148,7 +174,7 @@ pub fn verify_extract_claim(presentation: &str, claim: &str) -> Option<serde_jso
             let disclosure = BASE64_URL_SAFE_NO_PAD.decode(s).unwrap();
             let (_, key, _): (&str, String, serde_json::Value) =
                 serde_json::from_slice(&disclosure).expect("invalid json");
-            Some((key, s))
+            Some((key, *s))
         })
         .collect();
 

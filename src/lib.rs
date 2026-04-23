@@ -5,7 +5,10 @@ use std::{
     time::Instant,
 };
 
-use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
+use base64::{
+    Engine as _,
+    prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD},
+};
 use crossbeam::channel::Receiver;
 use num_bigint::{BigInt, BigUint};
 use num_traits::cast::ToPrimitive;
@@ -13,6 +16,7 @@ use prover::{MultiuseProver, ProofWithPubInput};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tokio::net::{TcpListener, UnixListener};
+use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::{
     prover::{Prover, SnarkjsProver},
@@ -146,23 +150,26 @@ fn presentation2input(
     let header_json = BASE64_URL_SAFE_NO_PAD
         .decode(header)
         .map_err(|_| UserError::BadJwtFormat)?;
-    let header_decoded: Header =
-        serde_json::from_slice(&header_json).map_err(|_| UserError::BadJwtFormat)?;
+    let header_decoded: Header = serde_json::from_slice(&header_json).map_err(|e| {
+        dbg!(e);
+        UserError::BadJwtFormat
+    })?;
     if header_decoded.alg != "ES256" {
         return Err(UserError::UnsupportedSigAlg);
     }
     let issuer_pk = match header_decoded.x5c.last() {
         Some(leaf_cert) => {
-            // PERFORMANCE: There are better ways to do this, pem::parse just strips away this text
-            // and base64 decodes it (ASN.1 / DER).
-            let leaf_cert_pem =
-                format!("-----BEGIN CERTIFICATE-----\n{leaf_cert}\n-----END CERTIFICATE-----");
-            let issuer_pk = pem::parse(leaf_cert_pem).unwrap();
-            let issuer_pk = issuer_pk.contents();
-            let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
-            assert_eq!(issuer_pk[0], 0x04);
-            let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
-            issuer_pk
+            let der = BASE64_STANDARD.decode(leaf_cert).map_err(|e| {
+                dbg!(e);
+                UserError::BadJwtFormat
+            })?;
+            let (_, cert) = X509Certificate::from_der(&der).map_err(|e| {
+                dbg!(e);
+                UserError::BadJwtFormat
+            })?;
+            let pk = cert.public_key().subject_public_key.as_ref();
+            assert_eq!(pk.len(), 65);
+            pk[1..].try_into().unwrap()
         }
         None => {
             let issuer_pk = pem::parse(ISSUER_PUBLIC).unwrap();

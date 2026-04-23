@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::{
-    presentation2input, print_execution_time,
+    ISSUER_PUBLIC, presentation2input, print_execution_time,
     prover::{MultiuseProver, Prover, SnarkjsProver},
     sdjwt, str2binary_sha2padding,
     witness::CircuitId,
@@ -53,6 +53,51 @@ fn small_claims() -> serde_json::Value {
         "exp": 1883000000,
         "given_name": "foobar",
     })
+}
+
+// A verifiable credentials presentation I've sent to the server.
+// NOTE: This is too large for the small circuit.
+const VP: &str = "eyJhbGciOiAiRVMyNTYiLCAidHlwIjogImRjK3NkLWp3dCIsICJ4NWMiOiBbIk1JSUMzekNDQW9XZ0F3SUJBZ0lVZjNsb2hUbURNQW1TL1lYL3E0aHFvUnlKQjU0d0NnWUlLb1pJemowRUF3SXdYREVlTUJ3R0ExVUVBd3dWVUVsRUlFbHpjM1ZsY2lCRFFTQXRJRlZVSURBeU1TMHdLd1lEVlFRS0RDUkZWVVJKSUZkaGJHeGxkQ0JTWldabGNtVnVZMlVnU1cxd2JHVnRaVzUwWVhScGIyNHhDekFKQmdOVkJBWVRBbFZVTUI0WERUSTFNRFF4TURFME16YzFNbG9YRFRJMk1EY3dOREUwTXpjMU1Wb3dVakVVTUJJR0ExVUVBd3dMVUVsRUlFUlRJQzBnTURFeExUQXJCZ05WQkFvTUpFVlZSRWtnVjJGc2JHVjBJRkpsWm1WeVpXNWpaU0JKYlhCc1pXMWxiblJoZEdsdmJqRUxNQWtHQTFVRUJoTUNWVlF3V1RBVEJnY3Foa2pPUFFJQkJnZ3Foa2pPUFFNQkJ3TkNBQVM3V0FBV3FQemUwVXMzejhwYWp5VlBXQlJtclJiQ2k1WDJzOUd2bHliUXl0d1R1bWNabmVqOUJrTGZBZ2xsb1g1dHYrTmdXZkRmZ3QvMDZzKzV0VjRsbzRJQkxUQ0NBU2t3SHdZRFZSMGpCQmd3Rm9BVVlzZVVSeWk5RDZJV0lLZWF3a21VUlBFQjA4Y3dHd1lEVlIwUkJCUXdFb0lRYVhOemRXVnlMbVYxWkdsM0xtUmxkakFXQmdOVkhTVUJBZjhFRERBS0JnZ3JnUUlDQUFBQkFqQkRCZ05WSFI4RVBEQTZNRGlnTnFBMGhqSm9kSFJ3Y3pvdkwzQnlaWEJ5YjJRdWNHdHBMbVYxWkdsM0xtUmxkaTlqY213dmNHbGtYME5CWDFWVVh6QXlMbU55YkRBZEJnTlZIUTRFRmdRVXFsL29weGtRbFl5MGxsYVRvUGJERS9teUVjRXdEZ1lEVlIwUEFRSC9CQVFEQWdlQU1GMEdBMVVkRWdSV01GU0dVbWgwZEhCek9pOHZaMmwwYUhWaUxtTnZiUzlsZFMxa2FXZHBkR0ZzTFdsa1pXNTBhWFI1TFhkaGJHeGxkQzloY21Ob2FYUmxZM1IxY21VdFlXNWtMWEpsWm1WeVpXNWpaUzFtY21GdFpYZHZjbXN3Q2dZSUtvWkl6ajBFQXdJRFNBQXdSUUloQU5KVlNEc3FUM0lrR2NLV1dnU2V1YmtET2RpNS9VRTliMUdGL1g1ZlFSRmFBaUJwNXQ2dEhoOFh3RmhQc3R6T0hNb3B2QkQvR3dtczBSQVVnbVNuNmt1OEdnPT0iXX0.eyJfc2QiOiBbIjcyNE5lZjZfcHpYU2V5ZDFUSE9oSXBVX2Nrenc2bnNBRkNrSlhPUjJSRkkiLCAiTGtIb3J0RUROMmUtVnJxUDRwSFNHbUhGdXlMdWpRV1ZaY0dQR3ZuYjI1ayIsICJaRmVDTGlNTlgxaGZiaDduWklnMnNQNjNLa1B1TTRzclV6SUpCWUJwZE5vIiwgImtsMlJXcm5EanljbldSbEZpNmo2LUJtYXJvaFpSOWFoYm5wM0RJY1BXcGMiLCAidFR0U1RHMm44ZmhPTTEzQnk5cjk0RDJlQ1ZHbHFqOHFMcVh2akV6S0J4QSIsICJ3VXQ4WlRKNlRHTjVaY19sZVRHNmFWSVNZNDJVZWNBM3h5QmxnendIa19ZIiwgInhZaTdZU2NmVVhfWVowc0pjQm5uTWIwQ0toQXR6M25EdE5CMGh2M3N2VjQiLCAieU5zTlBpaDdyN2dpSWE1aGhLZ1Bxc3A5aUNCWXhHa1JCRW51WksyOFZoSSJdLCAiaXNzIjogImh0dHBzOi8vYmFja2VuZC5pc3N1ZXIuZXVkaXcuZGV2IiwgImlhdCI6IDE3NzU2MDI4MDAsICJleHAiOiAxNzgzMzc4ODAwLCAidmN0IjogInVybjpldWRpOnBpZDoxIiwgInN0YXR1cyI6IHsic3RhdHVzX2xpc3QiOiB7ImlkeCI6IDcyNTcsICJ1cmkiOiAiaHR0cHM6Ly9pc3N1ZXIuZXVkaXcuZGV2L3Rva2VuX3N0YXR1c19saXN0L0ZDL3VybjpldWRpOnBpZDoxL2Q4NDBjNTY4LTJlMzYtNGFhMC04Mjg5LWIyOWZkMWU5MWMwZiJ9fSwgIl9zZF9hbGciOiAic2hhLTI1NiIsICJjbmYiOiB7Imp3ayI6IHsia3R5IjogIkVDIiwgImNydiI6ICJQLTI1NiIsICJ4IjogIl91TUJvU2pqMG5HX0tJSnJCR1VJcG8xN3lqLWJ5Y1djSzFsSW9VckcxdXciLCAieSI6ICI4WTk3YWRaRGMxNlJ6X2UwOHJ0czlFZ2s3MVNJOFJNSERsOElYM3JGMFhNIn19fQ._3KRjhJ-a2MYsl00RVqGJ_X1dzTY-p2vEOzpqXBTk7UcKZYlfq96FKy-4nMIlSDuXwsd5dNwk3Rwouc7-WOh6w~WyJJcTByR0ZqTVFjeDZNZUhZVVJXempBIiwgImdpdmVuX25hbWUiLCAiZm9vYmFyOCJd~eyJ0eXAiOiJrYitqd3QiLCJhbGciOiJFUzI1NiJ9.eyJzZF9oYXNoIjoic1NJZmZ1V25VQllpWUl3QWJBdXJMSzF0eTd1VFdmVEZiV21UTW8zUUJVYyIsImF1ZCI6Ing1MDlfaGFzaDo0alB0Q1prUDF1NHd6OEJ3UlMtZmJEQU4tYW1TRTQ5Q010bWdtUXhUTWIwIiwibm9uY2UiOiJDY0JKTUEyMTFDMjVsQmtDNVNvQk42eUhldkZpempPTCIsImlhdCI6MTc3NjkzNDc2MX0.VADcrT6DX5T3z-zIkAUj7Ux3tU0ylfqMzejoD4bI-h8rNeOuXP9R4aVX_qLlmVqOfvs1uiIQu5PIpoZfwWfWlA";
+
+#[test]
+fn verify_testing_issuer_credential_nocircuit() {
+    // Just checking correctness (of the presentation and the claim extraction algorithm)
+
+    // NOTE: The closure in this function doesn't properly work with this credential, as it does
+    // not go through the certificate chain. The easiest implementation would probably be to
+    // extract the leaf cert, but for now we just don't test this code.
+    // sdjwt::verify_presentation_lib(VP.to_owned(), ISSUER_CA_UT02.to_vec()).unwrap();
+
+    let claim = sdjwt::verify_extract_claim(VP, "given_name").unwrap();
+    assert_eq!(claim, serde_json::Value::String("foobar8".to_owned()))
+}
+
+#[test]
+#[cfg_attr(
+    not(all(feature = "slow-tests", not(debug_assertions)),),
+    ignore = "-F slow-tests --release"
+)]
+fn compute_proof_testing_issuer_credential_bn254_full() {
+    let circuit = CircuitId {
+        curve: "bn254".to_owned(),
+        circuit: "sdjwt_es256_sha256_1claim".to_owned(),
+        contributions: 1,
+    };
+    let e = crate::witness::get_circuit(&circuit).unwrap();
+
+    // Build the input (this could probably run without -F slow-tests)
+    let t0 = Instant::now();
+    let input =
+        presentation2input(e.params.expect("circuit has no params configured"), VP).unwrap();
+    dbg!(&input.value);
+    let input = vec![
+        ("in".to_owned(), input.input),
+        ("value".to_owned(), input.value),
+    ];
+    print_execution_time("Input preparation finished", t0);
+
+    let prover = MultiuseProver::new(&circuit.zkey_path()).unwrap();
+    run_proof_with_witness_gen(&circuit, prover, input);
 }
 
 // This code comes from MS1
@@ -139,7 +184,7 @@ fn compute_proof_using_generated_credential_inner(
     println!("{}", "-".repeat(100));
 
     // Just checking correctness (of the presentation and the claim extraction algorithm)
-    sdjwt::verify_presentation_lib(presentation.clone()).unwrap();
+    sdjwt::verify_presentation_lib(presentation.clone(), ISSUER_PUBLIC.to_vec()).unwrap();
     sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
 
     // Build the input
