@@ -409,10 +409,10 @@ struct ParsedPubInput {
 // be simpler. But this way we show it can be calculated from the public input (and how).
 fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
     // 1 because it includes the "always 1" value
-    assert_eq!(pub_input.len(), 1 + MAX_VALUE_BYTES);
+    assert_eq!(pub_input.len(), 1 + MAX_VALUE_SIGNALS);
 
     ParsedPubInput {
-        value: pub_input[1..1 + MAX_VALUE_BYTES]
+        value: pub_input[1..1 + MAX_VALUE_SIGNALS]
             .iter()
             .map_while(|v| v.to_u32().and_then(char::from_u32))
             .collect(),
