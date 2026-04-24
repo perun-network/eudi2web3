@@ -120,14 +120,44 @@ enum UserError {
     UnsupportedSigAlg,
 }
 
+#[derive(Debug)]
+enum SigAlg {
+    ES256,
+}
+#[derive(Debug)]
+enum HashAlg {
+    Sha2_256,
+}
+
+// I'm not sure if this is the best layout, given that the last segment will never have an
+// sd_index/sd_count. But having those be for the parent would be confusing.
+#[derive(Debug)]
+#[allow(dead_code)] // For now only printed via Debug
+struct PresentationSize {
+    sig_alg: SigAlg,
+    hash_alg: HashAlg,
+    header: usize, // b64(header)
+    segments: Vec<SegmentSize>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)] // For now only printed via Debug
+struct SegmentSize {
+    sd_index: usize,
+    sd_count: usize,
+    length: usize,
+    payload_offset: usize,
+}
+
+// TODO: This function is a mess.
 fn presentation2input(
     params: CircuitParams,
     presentation: &str,
 ) -> Result<CircuitInput, UserError> {
     // Get the relevant data from the credential to pass to input
-    let mut segments = presentation.split('~');
+    let segments: Vec<&str> = presentation.split('~').collect();
     let (message, sig) = segments
-        .next()
+        .first()
         .ok_or(UserError::BadJwtFormat)?
         .rsplit_once('.')
         .ok_or(UserError::BadJwtFormat)?;
@@ -157,6 +187,7 @@ fn presentation2input(
     if header_decoded.alg != "ES256" {
         return Err(UserError::UnsupportedSigAlg);
     }
+    let sig_alg = SigAlg::ES256;
     let issuer_pk = match header_decoded.x5c.last() {
         Some(leaf_cert) => {
             let der = BASE64_STANDARD.decode(leaf_cert).map_err(|e| {
@@ -189,9 +220,14 @@ fn presentation2input(
     let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name")
         .map_err(|_| UserError::BadJwtFormat)?;
     let mut distance2quote = 0;
-    let seg0 = segments.next().unwrap_or("");
+    // TODO: This currently does not support any other number of disclosure entries (0 is
+    // technically allowed). It is also quite a mess. Probably best to rewrite this such that body
+    // is used like a disclosure segment and have it repeat as often as needed.
+    let seg0 = segments.get(1).unwrap_or(&"");
     let mut seg0_payload_off = 0;
     let mut seg0_json_align = 0;
+    let mut sd_index = 0;
+    let mut sd_count = 0;
     let seg0_bytes;
     let value = match &pos {
         Some(pos) => pos.value,
@@ -204,19 +240,23 @@ fn presentation2input(
             // TODO: Circuit does not have proper support for selective disclosure, yet and treaing _sd
             // is too large for the current MAX_VALUE_BYTES. For testing we use "iss" instead if
             // "given_name" is not in the root.
-            pos = keyfinder::find_array_entry_by_str_value(&body_json, "_sd", &hash)
+            let arr_pos = keyfinder::find_array_entry_by_str_value(&body_json, "_sd", &hash)
                 .map_err(|_| UserError::BadJwtFormat)?;
             // pos = keyfinder::find_key_jsonbytes(&body_json, "iss")
             //     .map_err(|_| UserError::BadJwtFormat)?;
 
-            dbg!(&pos);
+            dbg!(&pos, &arr_pos);
 
-            match &pos {
-                Some(pos) => {
+            match &arr_pos {
+                Some(arr_pos) => {
+                    sd_index = arr_pos.array_index;
+                    sd_count = arr_pos.array_len;
+                    pos = Some(arr_pos.pos);
+
                     // 0 is minified json (: and [ are not included).
                     // We need to subtract an additional character because pos.value_start does not point
                     // at the quote.
-                    distance2quote = pos.value_start - pos.key_end_quote - 3;
+                    distance2quote = arr_pos.pos.value_start - arr_pos.pos.key_end_quote - 3;
 
                     seg0_bytes = BASE64_URL_SAFE_NO_PAD
                         .decode(seg0)
@@ -262,6 +302,42 @@ fn presentation2input(
         message.len(),
         message,
     );
+
+    let segment_sizes = match segments.len() {
+        0 | 1 => unreachable!(), // Checked by code above
+        2 => vec![SegmentSize {
+            sd_index: 0,
+            sd_count: 0,
+            length: body.len(),
+            payload_offset: payload_off,
+        }],
+        3 => vec![
+            // TODO: If there are no disclosure segments we are lying with this length.
+            SegmentSize {
+                sd_index,
+                sd_count,
+                length: body.len(),
+                payload_offset: payload_off,
+            },
+            SegmentSize {
+                sd_index: 0,
+                sd_count: 0,
+                length: seg0.len(),
+                payload_offset: seg0_payload_off,
+            },
+        ],
+        _ => unimplemented!("Currently does not support arbitrary disclosure counts"),
+    };
+
+    let size = PresentationSize {
+        sig_alg,
+        hash_alg: HashAlg::Sha2_256, // TODO: Check that in the JWT body.
+        header: header.len(),
+        segments: segment_sizes,
+    };
+    // TODO: We probably want to store this in a file or DB so we can see which sizes are actually
+    // relevant for improving circuit sizes.
+    dbg!(size);
 
     // Various checks whether the circuit can process this VP
     if sha2padded_len(message.len()) > params.payload {

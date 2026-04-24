@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::de::{SliceRead, StrRead};
 use serde_json::value::RawValue;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Position<'a> {
     // Includes the quotes (because we need them for verification)
     pub key_start_quote: usize,
@@ -39,6 +39,13 @@ pub fn find_key_jsonbytes<'a>(
     Ok(Some(pos))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct ArrayPosition<'a> {
+    pub pos: Position<'a>,
+    pub array_index: usize,
+    pub array_len: usize,
+}
+
 /// The returned value (and its indicies) DO NOT contain the quotes (contrary to
 /// [`find_key_jsonbytes`]). This is because we know for sure that it is a string, so there is no
 /// need to support arbitrary values (and thus output raw json).
@@ -46,7 +53,7 @@ pub fn find_array_entry_by_str_value<'a, 'k>(
     data: &'a [u8],
     key: &'k str,
     value_to_find: &'k str,
-) -> serde_json::Result<Option<Position<'a>>> {
+) -> serde_json::Result<Option<ArrayPosition<'a>>> {
     // Find the key (and get the array slice).
     // Doing this in two steps isn't the most efficient, but we aren't in a hot loop
     // (proof+witness gen is way slower).
@@ -64,11 +71,15 @@ pub fn find_array_entry_by_str_value<'a, 'k>(
     deserializer.end()?;
     drop(deserializer);
 
-    let Some(value) = value else {
+    let Some((value, arr_pos, arr_len)) = value else {
         return Ok(None);
     };
 
-    Ok(Some(compute_position_from_slices(raw.key, value, data)))
+    Ok(Some(ArrayPosition {
+        pos: compute_position_from_slices(raw.key, value, data),
+        array_index: arr_pos,
+        array_len: arr_len,
+    }))
 }
 
 pub fn find_array_follower_by_str_value<'a>(
@@ -153,7 +164,7 @@ struct StrValueFinderVisitor<'data> {
 }
 
 impl<'de> serde::de::Visitor<'de> for StrValueFinderVisitor<'_> {
-    type Value = Option<&'de str>;
+    type Value = Option<(&'de str, usize, usize)>;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("an array of strings")
@@ -163,13 +174,15 @@ impl<'de> serde::de::Visitor<'de> for StrValueFinderVisitor<'_> {
     where
         A: serde::de::SeqAccess<'de>,
     {
-        let mut pos = None;
-        while let Some(value) = seq.next_element::<&str>()? {
-            if value == self.value {
-                pos = Some(value); // Important: This must be from the data, not from self.
+        let mut value = None;
+        let mut i = 0;
+        while let Some(val) = seq.next_element::<&str>()? {
+            if val == self.value {
+                value = Some((val, i)); // Important: This must be from the data, not from self.
             }
+            i += 1;
         }
-        Ok(pos)
+        Ok(value.map(|(value, index)| (value, index, i)))
     }
 }
 
@@ -466,11 +479,14 @@ mod test {
 
         let key = format!("\"{key}\"");
         assert_eq!(
-            &data[pos.key_start_quote..pos.key_end_quote],
+            &data[pos.pos.key_start_quote..pos.pos.key_end_quote],
             key.as_bytes()
         );
 
-        assert_eq!(&data[pos.value_start..pos.value_end], value.as_bytes());
+        assert_eq!(
+            &data[pos.pos.value_start..pos.pos.value_end],
+            value.as_bytes()
+        );
     }
 
     #[track_caller]
