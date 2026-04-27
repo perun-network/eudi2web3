@@ -3,14 +3,15 @@ AK_FILES := $(wildcard verifier/cardano/validators/*.ak)
 SHELL := /usr/bin/env bash
 
 # Built with prep-release, those are supposed to always be included in builds
+# TODO: small requires a larger ptau file due to very expensive base64 decoding for _sd `]` checking.
 RELEASE_TARGETS := \
-	circuit-bls12-381-small_nocrypto \
-	circuit-bls12-381-small \
-	circuit-bls12-381-sdjwt_es256_sha256_1claim
+	circuit-bls12-381-tiny_nocrypto \
+	circuit-bls12-381-tiny \
+	circuit-bls12-381-small_nocrypto
 # Build with prep-tests, those are expected to be present for cargo test.
 TEST_TARGETS := \
 	circuit-bn254-minimal \
-	circuit-bn254-small_nocrypto \
+	circuit-bn254-tiny_nocrypto \
 	circuit-bn254-witness_test \
 	circuit-bn254-blsbug1 \
 	circuit-bn254-blsbug2 \
@@ -21,8 +22,8 @@ TEST_TARGETS := \
 	circuit-bls12-381-blsbug3
 # Build with prep-tests-slow, those are expected to be present for cargo test -F slow-tests --release
 SLOW_TEST_TARGETS := \
-	circuit-bn254-sdjwt_es256_sha256_1claim \
-	circuit-bls12-381-small
+	circuit-bn254-small_nocrypto \
+	circuit-bls12-381-tiny
 
 PTAU_SIZE_BN254 := 22
 PTAU_SIZE_BLS12381 := 22

@@ -87,7 +87,7 @@ async fn submit_data(
         publish: data.publish,
         circuit: data.circuit.unwrap_or(CircuitId {
             curve: "bls12-381".to_owned(),
-            circuit: "sdjwt_es256:sha256_1claim".to_owned(),
+            circuit: "small_nocrypto".to_owned(), // TODO: The default should not be insecure!
             contributions: 1,
         }),
     });

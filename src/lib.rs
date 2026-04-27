@@ -163,9 +163,10 @@ fn presentation2input(
         .ok_or(UserError::BadJwtFormat)?;
 
     let (header, body) = message.split_once('.').ok_or(UserError::BadJwtFormat)?;
-    let sig = BASE64_URL_SAFE_NO_PAD
-        .decode(sig)
-        .map_err(|_| UserError::BadJwtFormat)?;
+    let sig = BASE64_URL_SAFE_NO_PAD.decode(sig).map_err(|e| {
+        dbg!(e);
+        UserError::BadJwtFormat
+    })?;
     if sig.len() != 64 {
         return Err(UserError::UnexpectedSigLen);
     }
@@ -177,9 +178,10 @@ fn presentation2input(
     // TODO: Ideally prove the chain is valid.
     // For now: Extract the pubkey and assume it is trusted.
     // SECURITY: This is of course not secure.
-    let header_json = BASE64_URL_SAFE_NO_PAD
-        .decode(header)
-        .map_err(|_| UserError::BadJwtFormat)?;
+    let header_json = BASE64_URL_SAFE_NO_PAD.decode(header).map_err(|e| {
+        dbg!(header, e);
+        UserError::BadJwtFormat
+    })?;
     let header_decoded: Header = serde_json::from_slice(&header_json).map_err(|e| {
         dbg!(e);
         UserError::BadJwtFormat
@@ -213,12 +215,15 @@ fn presentation2input(
     };
 
     // Find the message offset for the key we are interested in.
-    let body_json = BASE64_URL_SAFE_NO_PAD
-        .decode(body)
-        .map_err(|_| UserError::BadJwtFormat)?;
+    let body_json = BASE64_URL_SAFE_NO_PAD.decode(body).map_err(|e| {
+        dbg!(e);
+        UserError::BadJwtFormat
+    })?;
     // TODO: Cleanup this mess
-    let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name")
-        .map_err(|_| UserError::BadJwtFormat)?;
+    let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name").map_err(|e| {
+        dbg!(e);
+        UserError::BadJwtFormat
+    })?;
     let mut distance2quote = 0;
     // TODO: This currently does not support any other number of disclosure entries (0 is
     // technically allowed). It is also quite a mess. Probably best to rewrite this such that body
@@ -241,7 +246,10 @@ fn presentation2input(
             // is too large for the current MAX_VALUE_BYTES. For testing we use "iss" instead if
             // "given_name" is not in the root.
             let arr_pos = keyfinder::find_array_entry_by_str_value(&body_json, "_sd", &hash)
-                .map_err(|_| UserError::BadJwtFormat)?;
+                .map_err(|e| {
+                    dbg!(e);
+                    UserError::BadJwtFormat
+                })?;
             // pos = keyfinder::find_key_jsonbytes(&body_json, "iss")
             //     .map_err(|_| UserError::BadJwtFormat)?;
 
@@ -258,9 +266,10 @@ fn presentation2input(
                     // at the quote.
                     distance2quote = arr_pos.pos.value_start - arr_pos.pos.key_end_quote - 3;
 
-                    seg0_bytes = BASE64_URL_SAFE_NO_PAD
-                        .decode(seg0)
-                        .map_err(|_| UserError::BadJwtFormat)?;
+                    seg0_bytes = BASE64_URL_SAFE_NO_PAD.decode(seg0).map_err(|e| {
+                        dbg!(e);
+                        UserError::BadJwtFormat
+                    })?;
 
                     let pos2 =
                         keyfinder::find_array_follower_by_str_value(&seg0_bytes, "given_name")

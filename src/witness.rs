@@ -137,15 +137,17 @@ impl CircuitId {
 // If these do not match the circuit configuration witness generation will fail silently.
 fn circuit_params(name: &str) -> Option<CircuitParams> {
     match name {
-        "sdjwt_es256_sha256_1claim" => Some(CircuitParams {
+        // Small because that's what I could reliably get working with the testing credentials.
+        "small" | "small_nocrypto" => Some(CircuitParams {
             header: 2048,
             payload: 3072,
-            sd_entries: 5,
+            sd_entries: 8,
             disclosures: 1,
-            sdbytes: 256,
+            sdbytes: 128,
             path_depth: 1,
         }),
-        "small" | "small_nocrypto" => Some(CircuitParams {
+        // Tiny because that's the smallest (reasonable) I could use with generated credentials.
+        "tiny" | "tiny_nocrypto" => Some(CircuitParams {
             header: 32,
             payload: 192,
             sd_entries: 1,
