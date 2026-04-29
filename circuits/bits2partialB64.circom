@@ -91,13 +91,11 @@ template bits2partialB64DecodeV1(payload_bytes, max_b64_len) {
     signal input offset;
     signal output out[max_b64_len*3/4];
 
-    assert(offset + max_b64_len <= payload_bytes);
-
     // Convert bits to bytes
     signal b64[payload_bytes] <== BEBits2Array(payload_bytes*8, payload_bytes)(bits);
     
     // Select which bytes we want to decode.
-    signal slice[max_b64_len] <== SliceFixedLen(max_b64_len, payload_bytes)(
+    signal slice[max_b64_len] <== SliceFixedLenV2(max_b64_len, payload_bytes)(
         in <== b64,
         sel <== offset
     );
@@ -119,10 +117,8 @@ template bits2partialB64DecodeV2(payload_bytes, max_b64_len) {
     signal input offset;
     signal output out[max_b64_len*3/4];
 
-    assert(offset + max_b64_len <= payload_bytes);
-
     // Select which bytes we want to decode.
-    signal slice[max_b64_len*8] <== SliceFixedLen(max_b64_len*8, payload_bytes*8)(
+    signal slice[max_b64_len*8] <== SliceFixedLenV2(max_b64_len*8, payload_bytes*8)(
         in <== bits,
         sel <== offset*8
     );
@@ -156,7 +152,6 @@ template bits2partialB64DecodeV3(payload_bytes, max_b64_len) {
     signal input offset;
     signal output out[max_b64_len*3/4];
 
-    assert(offset + max_b64_len <= payload_bytes);
     // This version does not support base64 starting at an offset or offset not pointing to a base64 block.
     // Use V1 or V4 instead if the first one is required.
     // Multiplex after base64 decoding if the second one is required (same for all other versions we have now).
@@ -169,7 +164,7 @@ template bits2partialB64DecodeV3(payload_bytes, max_b64_len) {
     signal blocks[in_blocks] <== BEBits2Array(payload_bytes*8, in_blocks)(bits);
 
     // Select which bytes we want to decode.
-    signal slice[out_blocks] <== SliceFixedLen(out_blocks, in_blocks)(
+    signal slice[out_blocks] <== SliceFixedLenV2(out_blocks, in_blocks)(
         in <== blocks,
         sel <== offset/4
     );
@@ -220,8 +215,6 @@ template bits2partialB64Decode_multibyteMux_offset(payload_bytes, max_b64_len, k
     signal input offset;
     signal output out[max_b64_len*3/4];
 
-    assert(offset + max_b64_len <= payload_bytes);
-    
     var in_blocks = payload_bytes / b;
     var out_blocks = max_b64_len / b + 1; // Alginment requires a bit more data at the end.
 
@@ -234,7 +227,7 @@ template bits2partialB64Decode_multibyteMux_offset(payload_bytes, max_b64_len, k
     signal blocks[in_blocks] <== BEBits2Array(payload_bytes*8, in_blocks)(bits);
 
     // Select which bytes we want to decode.
-    signal slice[out_blocks] <== SliceFixedLen(out_blocks, in_blocks)(
+    signal slice[out_blocks] <== SliceFixedLenV2(out_blocks, in_blocks)(
         in <== blocks,
         sel <== div
     );
@@ -246,7 +239,7 @@ template bits2partialB64Decode_multibyteMux_offset(payload_bytes, max_b64_len, k
     // To allow arbitrary base64 start offsets we either need a different base64 decoder implementation
     // or we need another multiplexer. Doing this here (on a smaller set of inputs) might be faster
     // than doing it on the entire input (as V1 does).
-    signal aligned[max_b64_len] <== SliceFixedLen(max_b64_len, max_b64_len+b)(
+    signal aligned[max_b64_len] <== SliceFixedLenV2(max_b64_len, max_b64_len+b)(
         in <== b64,
         sel <== rem
     );
