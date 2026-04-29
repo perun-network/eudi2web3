@@ -3,7 +3,7 @@ pragma circom 2.2.3;
 include "circomlib/circuits/comparators.circom";
 include "circomlib/circuits/multiplexer.circom";
 include "util.circom";
-// include "zk-email-verify/packages/circuits/lib/bigint-func.circom";
+include "zk-email-verify/packages/circuits/lib/bigint-func.circom";
 
 
 // n: Max number of bytes
