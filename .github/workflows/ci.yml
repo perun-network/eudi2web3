@@ -70,6 +70,25 @@ jobs:
       - run: cargo nextest run --locked --no-fail-fast --status-level all
       - run: cargo test --doc --locked
 
+  circuit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install circom binary
+        run: |
+          curl -L -o circom https://github.com/iden3/circom/releases/download/v2.2.3/circom-linux-amd64
+          chmod +x circom
+          sudo mv circom /usr/local/bin/
+      - name: make init
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          make init
+      - run: npm install
+        working-directory: circuits/tests
+      - name: Run circuit tests
+        run: npm test
+        working-directory: circuits/tests
+
   cardano-contract:
     runs-on: ubuntu-latest
     steps:
