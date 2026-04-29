@@ -137,6 +137,7 @@ describe("JsonGetValue", () => {
                     key: str2paddedBytes(cases[i].key, 32),
                     key_length: cases[i].key_len ?? cases[i].key.length,
                     value: str2paddedBytes(cases[i].value, 64),
+                    sep: 58, // ':'
                 });
 
                 await circuit.checkConstraints(witness);
