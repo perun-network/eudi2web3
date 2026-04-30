@@ -11,7 +11,6 @@ use base64::{
 };
 use crossbeam::channel::Receiver;
 use num_bigint::{BigInt, BigUint};
-use num_traits::cast::ToPrimitive;
 use prover::{MultiuseProver, ProofWithPubInput};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -420,11 +419,28 @@ fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
     // 1 because it includes the "always 1" value
     assert_eq!(pub_input.len(), 1 + MAX_VALUE_SIGNALS);
 
+    // Convert compressed form back into bytes.
+    let mut bytes = Vec::with_capacity(MAX_VALUE_SIGNALS * 31);
+    for v in &pub_input[1..1 + MAX_VALUE_SIGNALS] {
+        let mut chunk = v.to_bytes_be();
+
+        // Pad to fixed size (31 bytes)
+        if chunk.len() < 31 {
+            let mut padded = vec![0u8; 31 - chunk.len()];
+            padded.extend_from_slice(&chunk);
+            chunk = padded;
+        }
+
+        // If somehow larger (shouldn't happen), truncate from the left (MSB side)
+        if chunk.len() > 31 {
+            chunk = chunk[chunk.len() - 31..].to_vec();
+        }
+
+        bytes.extend_from_slice(&chunk);
+    }
+
     ParsedPubInput {
-        value: pub_input[1..1 + MAX_VALUE_SIGNALS]
-            .iter()
-            .map_while(|v| v.to_u32().and_then(char::from_u32))
-            .collect(),
+        value: String::from_utf8(bytes).expect("Invalid UTF-8 (unexpected for valid JSON)"),
     }
 }
 
