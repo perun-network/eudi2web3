@@ -16,6 +16,7 @@ TEST_TARGETS := \
 	circuit-bn254-blsbug1 \
 	circuit-bn254-blsbug2 \
 	circuit-bn254-blsbug3 \
+	circuit-bls12-381-tiny_nocrypto \
 	circuit-bls12-381-minimal \
 	circuit-bls12-381-blsbug1 \
 	circuit-bls12-381-blsbug2 \
