@@ -108,7 +108,7 @@ impl Prover for SnarkjsProver {
         let proof_path = tmp_path.join("proof.json");
         let pub_path = tmp_path.join("pub.json");
 
-        let proof = self.prove_inner(tmp_dir.path(), witness)?;
+        let proof = self.prove_inner(&tmp_path, witness)?;
         let valid = self.verify_inner(&vkey_path, &proof_path, &pub_path)?;
         tmp_dir.close()?;
         Ok((proof, valid))

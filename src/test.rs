@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use crate::{
     ISSUER_PUBLIC, presentation2input, print_execution_time,
@@ -107,6 +107,37 @@ fn compute_proof_testing_issuer_credential_bn254_small_nocrypto() {
     let prover = MultiuseProver::new(&circuit.zkey_path()).unwrap();
     run_proof_with_witness_gen(&circuit, prover, input);
 }
+#[test]
+#[cfg_attr(
+    not(all(feature = "slow-tests", not(debug_assertions)),),
+    ignore = "-F slow-tests --release"
+)]
+fn compute_proof_testing_issuer_credential_bls12381_small_nocrypto_snarkjs() {
+    let circuit = CircuitId {
+        curve: "bls12-381".to_owned(),
+        // TODO: We are using nocrypto here, mainly because I don't have ptau file large enough for the one with crypto.
+        circuit: "small_nocrypto".to_owned(),
+        contributions: 1,
+    };
+    let e = crate::witness::get_circuit(&circuit).unwrap();
+
+    // Build the input (this could probably run without -F slow-tests)
+    let t0 = Instant::now();
+    let input = presentation2input(
+        e.params.expect("circuit has no params configured"),
+        VP_LATE_SD_ENTRY,
+    )
+    .unwrap();
+    dbg!(&input.value);
+    let input = vec![
+        ("in".to_owned(), input.input),
+        ("value".to_owned(), input.value),
+    ];
+    print_execution_time("Input preparation finished", t0);
+
+    let prover = SnarkjsProver::new(circuit.zkey_path(), "bls12-381".to_owned()).unwrap();
+    run_proof_with_witness_gen(&circuit, prover, input);
+}
 
 // This code comes from MS1
 // In debug mode it is basically unusable, taking ~200 seconds (without signature verification
@@ -156,10 +187,36 @@ fn compute_proof_using_generated_credential_bn254_tiny_nocrypto() {
         false,
     );
 }
+#[test]
+fn compute_proof_using_generated_credential_bls12381_tiny_nocrypto_snarkjs() {
+    compute_proof_using_generated_credential_inner_with_prover(
+        &CircuitId {
+            curve: "bls12-381".to_owned(),
+            circuit: "tiny_nocrypto".to_owned(),
+            contributions: 1,
+        },
+        small_claims(),
+        false,
+        |p| SnarkjsProver::new(p, "bls12-381".to_owned()).unwrap(),
+    );
+}
 fn compute_proof_using_generated_credential_inner(
     circuit: &CircuitId,
     claims: serde_json::Value,
     add_decoy_claims: bool,
+) {
+    compute_proof_using_generated_credential_inner_with_prover(
+        circuit,
+        claims,
+        add_decoy_claims,
+        |p| MultiuseProver::new(&p).unwrap(),
+    );
+}
+fn compute_proof_using_generated_credential_inner_with_prover<P: Prover>(
+    circuit: &CircuitId,
+    claims: serde_json::Value,
+    add_decoy_claims: bool,
+    get_prover: impl FnOnce(String) -> P,
 ) {
     let circuits = crate::witness::get_circuits();
     let e = circuits
@@ -209,8 +266,7 @@ fn compute_proof_using_generated_credential_inner(
     ];
     print_execution_time("Input preparation finished", t0);
 
-    let prover = MultiuseProver::new(&circuit.zkey_path()).unwrap();
-    run_proof_with_witness_gen(circuit, prover, input);
+    run_proof_with_witness_gen(circuit, get_prover(circuit.zkey_path()), input);
 }
 
 /// Useful to test if the bls proof validity bug still exists.
