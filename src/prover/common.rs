@@ -140,7 +140,7 @@ pub fn write_wtns_file(curve: &str, wit: &[BigInt], path: impl AsRef<Path>) -> R
         witness: wtns_file::Witness(
             wit.iter()
                 .map(|v| {
-                    let (sign, mut v) = v.to_bytes_be();
+                    let (sign, mut v) = v.to_bytes_le();
                     assert_ne!(sign, num_bigint::Sign::Minus);
                     v.resize(32, 0);
                     let v: [u8; 32] = v.try_into().unwrap();
