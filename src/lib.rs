@@ -641,10 +641,11 @@ fn start_workers(workers: NonZeroUsize, input: Receiver<QueuedJob>, state: Arc<A
                                     .await,
                             );
                             print_execution_time("cardano::publish finished", t0);
-                            s.update_job_queued(
+                            s.update_job_queued_async(
                                 job.id,
                                 Job::Completed(Box::new(CompletedJob { proof, tx })),
-                            );
+                            )
+                            .await;
                         });
                     }
                     Ok(proof) => {
@@ -711,8 +712,18 @@ fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPub
 }
 
 impl AppState {
+    async fn update_job_queued_async(&self, id: JobID, new: Job) {
+        let mut guard = self.jobs.lock().await;
+        let entry = guard.data.get_mut(&id);
+        Self::update_job_queued_inner(entry, new);
+    }
     fn update_job_queued(&self, id: JobID, new: Job) {
-        match self.jobs.blocking_lock().data.get_mut(&id) {
+        let mut guard = self.jobs.blocking_lock();
+        let entry = guard.data.get_mut(&id);
+        Self::update_job_queued_inner(entry, new);
+    }
+    fn update_job_queued_inner(entry: Option<&mut Job>, new: Job) {
+        match entry {
             Some(j @ Job::Queued { .. }) => *j = new,
             Some(j) => {
                 if cfg!(debug_assertions) {
