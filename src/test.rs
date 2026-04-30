@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant};
+use std::time::Instant;
 
 use crate::{
     ISSUER_PUBLIC, presentation2input, print_execution_time,
