@@ -26,7 +26,6 @@ impl SnarkjsProver {
         write_wtns_file(&self.curve, &witness, &wtns_path)?;
         let success = Command::new("snarkjs")
             .arg("g16p")
-            .arg("-v")
             .arg(&self.zkey_path)
             .arg(&wtns_path)
             .arg(&proof_path)
