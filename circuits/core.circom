@@ -90,6 +90,19 @@ template Core(header, payload_bytes, max_sd_entries, disclosures, sdbytes, path_
 
     var MAX_VALUE = MAX_VALUE_SIGNALS * BYTES_PER_SIGNAL;
 
+    // Bind the proof to a single (arbitrary) value.
+    // This does not make the proof non-reusable but it means that a proof (once created)
+    // cannot be converted to a different proof with the same passthrough value, unless
+    // the prover knows the remaining witness (in this case the credential VP).
+    //
+    // There are no constraints that use this, it is just passed through the public inputs.
+    //
+    // By convention:
+    // - The least 4 signifcant bytes of the first signal are used as a format/destination identifier,
+    // - If more than 254 bits are needed, the most signifant bits of signal 0 should be used first.
+    // - Signal 2 should contain the address or a hash, according to the format/destination identifier.
+    signal input passthrough[2];
+
     input SDJWT(payload_bytes, disclosures, sdbytes, path_depth) in;
     signal input value[MAX_VALUE]; // 0-padded
     // Big endian, aligned to the LSB

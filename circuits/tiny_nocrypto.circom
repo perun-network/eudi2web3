@@ -2,7 +2,7 @@ pragma circom 2.2.3;
 
 include "core.circom";
 
-component main = Core(
+component main {public [passthrough]} = Core(
     32,      // header
     192,    // payload
     1,      // sd_entries

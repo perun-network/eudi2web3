@@ -14,8 +14,8 @@ use serde_json::json;
 use sha2::Digest as _;
 
 use crate::{
-    AppState, Job, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof, pubinput2parsed,
-    witness::CircuitId,
+    AppState, Binding, Job, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof,
+    pubinput2parsed, witness::CircuitId,
 };
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
@@ -34,7 +34,7 @@ pub fn build_router() -> Router<Arc<AppState>> {
 
 #[derive(Debug, Deserialize)]
 struct SubmitDataRequest {
-    addr: String,
+    binding: Binding,
     publish: bool,
     circuit: Option<CircuitId>,
 }
@@ -83,7 +83,7 @@ async fn submit_data(
     let x509_hash = BASE64_URL_SAFE_NO_PAD.encode(x509_hash);
 
     let id = state.jobs.lock().await.push(Job::Partial {
-        cardano_addr: data.addr,
+        binding: data.binding,
         publish: data.publish,
         circuit: data.circuit.unwrap_or(CircuitId {
             curve: "bls12-381".to_owned(),
@@ -229,7 +229,7 @@ async fn vp_auth(
     let mut job = Job::Queued { pos };
     std::mem::swap(old, &mut job);
     let Job::Partial {
-        cardano_addr,
+        binding,
         publish,
         circuit,
     } = job
@@ -240,7 +240,7 @@ async fn vp_auth(
         .queue
         .send(QueuedJob {
             id,
-            cardano_addr,
+            binding,
             vp_token,
             publish,
             // TODO: Let user select the circuit.

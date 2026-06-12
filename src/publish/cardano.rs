@@ -10,7 +10,7 @@ use pallas_wallet::PrivateKey;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::{MAX_VALUE_BYTES, MAX_VALUE_SIGNALS, prover::ProofWithPubInput};
+use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
 
 const BLOCKFROST_URL: &str = "https://cardano-preview.blockfrost.io/api/v0";
 
@@ -160,7 +160,11 @@ fn encode_redeemer(proof: &ProofWithPubInput) -> Vec<u8> {
 
 fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     dbg!(&proof.pub_input);
-    let claim_value_signals = &proof.pub_input[1..1 + MAX_VALUE_SIGNALS];
+
+    let [_, _, addr, claim_value_signals @ ..] = proof.pub_input.as_slice() else {
+        unreachable!()
+    };
+
     let mut claim_value = Vec::with_capacity(MAX_VALUE_BYTES);
     for signal in claim_value_signals {
         let mut sbytes = signal.to_bytes_le();
@@ -168,8 +172,9 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
         sbytes.reverse();
         claim_value.extend(sbytes);
     }
+    let addr = addr.to_bytes_be();
 
-    dbg!(&claim_value_signals, &claim_value);
+    dbg!(&claim_value_signals, &claim_value, &addr);
 
     // Intentionally invalidate proof for testing
     // claim_value[30] = 0x42;
@@ -191,6 +196,7 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
                 ]),
             }),
             PlutusData::BoundedBytes(claim_value.into()),
+            PlutusData::BoundedBytes(addr.into()),
         ]),
     })
 }

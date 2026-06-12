@@ -3,11 +3,11 @@ AK_FILES := $(wildcard verifier/cardano/validators/*.ak)
 SHELL := /usr/bin/env bash
 
 # Built with prep-release, those are supposed to always be included in builds
-# TODO: small requires a larger ptau file due to very expensive base64 decoding for _sd `]` checking.
 RELEASE_TARGETS := \
 	circuit-bls12-381-tiny_nocrypto \
 	circuit-bls12-381-tiny \
-	circuit-bls12-381-small_nocrypto
+	circuit-bls12-381-small_nocrypto \
+	circuit-bls12-381-small
 # Build with prep-tests, those are expected to be present for cargo test.
 TEST_TARGETS := \
 	circuit-bn254-minimal \
@@ -26,8 +26,8 @@ SLOW_TEST_TARGETS := \
 	circuit-bn254-small_nocrypto \
 	circuit-bls12-381-tiny
 
-PTAU_SIZE_BN254 := 22
-PTAU_SIZE_BLS12381 := 22
+PTAU_SIZE_BN254 := 24
+PTAU_SIZE_BLS12381 := 24
 
 .PHONY: bn254 .bls12381 r1cs r1cs-bls12381 init install_w2c2
 # Cryptographically relevant and expensive files we want to keep around.
@@ -74,6 +74,10 @@ ptau/bn254_%.ptau:
 	# https://github.com/privacy-ethereum/perpetualpowersoftau?tab=readme-ov-file#prepared-and-truncated-files
 	time curl -fSL -o $@ https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_$*.ptau
 
+# ptau/bls12-381_%.ptau:
+# 	@echo -e "\x1b[96mDownloading ptau $*\x1b[0m"
+# 	# https://github.com/p0tion-tools/cardano-ppot/blob/main/README.md
+# 	time curl -fSL -o $@ https://cardano-trusted-setup-test.s3.us-east-2.amazonaws.com/Cardano-PPOT-Results/pot23_final_$*.ptau
 
 # I could not find a good source for a bls12-381 ptau file that is large enough, so we have to generate it (will take a long time).
 ptau/bls12-381_%.ptau:

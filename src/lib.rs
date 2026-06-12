@@ -11,6 +11,7 @@ use base64::{
 };
 use crossbeam::channel::Receiver;
 use num_bigint::{BigInt, BigUint};
+use num_traits::FromBytes;
 use prover::{MultiuseProver, ProofWithPubInput};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -538,7 +539,7 @@ type JobID = u64;
 #[derive(Debug)]
 enum Job {
     Partial {
-        cardano_addr: String,
+        binding: Binding,
         publish: bool,
         circuit: CircuitId,
     },
@@ -561,12 +562,51 @@ struct CompletedJob {
 #[derive(Debug)]
 struct QueuedJob {
     id: JobID,
-    // TODO: This must be bound in the zk circuit, otherwise the proof could be reused.
-    #[allow(unused)]
-    cardano_addr: String,
+    binding: Binding,
     publish: bool,
     vp_token: String,
     circuit: CircuitId,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Binding {
+    CardanoShelley(CardanoAddr),
+}
+
+impl Binding {
+    fn to_passthrough(&self) -> [BigInt; 2] {
+        // Important: We only have 254/256 bits in both signals.
+        match self {
+            Binding::CardanoShelley(addr) => [BigInt::from(1), BigInt::from_be_bytes(&addr.0)],
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CardanoAddr([u8; 28]);
+
+impl<'de> serde::Deserialize<'de> for CardanoAddr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use pallas_addresses::{Address, ShelleyPaymentPart};
+
+        let s = String::deserialize(deserializer)?;
+        match Address::from_bech32(&s) {
+            Ok(Address::Shelley(addr)) => match addr.payment() {
+                ShelleyPaymentPart::Key(hash) => Ok(Self(**hash)),
+                ShelleyPaymentPart::Script(_) => Err(serde::de::Error::custom(
+                    "Shelly::Script addresses not supported yet",
+                )),
+            },
+            Ok(_) => Err(serde::de::Error::custom("unsupported address format")),
+            Err(e) => Err(serde::de::Error::custom(format!(
+                "could not deserialize address: {e:?}"
+            ))),
+        }
+    }
 }
 
 pub async fn run_server() {
@@ -679,6 +719,10 @@ fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPub
     let t0 = Instant::now();
     let input = presentation2input(params, &job.vp_token)?;
     let input = vec![
+        (
+            "passthrough".to_owned(),
+            job.binding.to_passthrough().to_vec(),
+        ),
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
