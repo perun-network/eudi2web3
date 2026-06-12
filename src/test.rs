@@ -99,6 +99,7 @@ fn compute_proof_testing_issuer_credential_bn254_small_nocrypto() {
     .unwrap();
     dbg!(&input.value);
     let input = vec![
+        ("passthrough".to_owned(), vec![0.into(), 1.into()]),
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
@@ -261,6 +262,7 @@ fn compute_proof_using_generated_credential_inner_with_prover<P: Prover>(
     .unwrap();
     dbg!(&input.value);
     let input = vec![
+        ("passthrough".to_owned(), vec![0.into(), 1.into()]),
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
