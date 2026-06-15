@@ -6,10 +6,11 @@ pragma circom 2.2.3;
 template Minimal {
     var MAX_VALUE_SIGNALS = 2;
 
+    signal input passthrough[2];
     signal input value_compressed[MAX_VALUE_SIGNALS];
     signal input valid;
 
     valid === 65; // 'A'
 }
 
-component main {public [value_compressed]} = Minimal();
+component main {public [passthrough, value_compressed]} = Minimal();
