@@ -270,19 +270,21 @@ async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
 #[serde(rename_all = "lowercase", tag = "status")]
 enum JobStatusResponse {
     WaitingForVP,
-    Queued {
-        pos: u64,
-        len: u64,
-    },
-    Success {
-        proof: SnarkjsProof,
-        pub_input: Vec<String>,
-        // Public input as parsed data (easier to read/understand).
-        // Not useful for proof verification, intended to be used only for display to the user.
-        parsed: ParsedPubInput,
-        tx: Option<String>,
-    },
+    Queued { pos: u64, len: u64 },
+    // Reason for boxing this: It is large and the majority of our responses will be WaitingForVP
+    // and Queued, so boxing makes sense even if this is short-lived.
+    Success(Box<FinishedJob>),
     Error(UserError),
+}
+
+#[derive(Debug, Serialize)]
+struct FinishedJob {
+    proof: SnarkjsProof,
+    pub_input: Vec<String>,
+    // Public input as parsed data (easier to read/understand).
+    // Not useful for proof verification, intended to be used only for display to the user.
+    parsed: ParsedPubInput,
+    tx: Option<String>,
 }
 
 async fn job_status(
@@ -300,12 +302,12 @@ async fn job_status(
             pos: pos - head,
             len: state.queue.len() as u64,
         },
-        Job::Completed(boxed) => JobStatusResponse::Success {
+        Job::Completed(boxed) => JobStatusResponse::Success(Box::new(FinishedJob {
             proof: (&boxed.proof).into(),
             parsed: pubinput2parsed(&boxed.proof.pub_input),
             pub_input: boxed.proof.to_snarkjs_pubinput(),
             tx: boxed.tx.map(|tx| format!("0x{}", hex::encode(tx))),
-        },
+        })),
         Job::Error(e) => JobStatusResponse::Error(*e),
     }))
 }

@@ -412,6 +412,7 @@ struct Header {
 #[derive(Debug, Serialize)]
 struct ParsedPubInput {
     pub value: String,
+    pub binding: Binding,
 }
 
 // We could also take this from the input data instead of the witness (after proof gen). That would
@@ -420,9 +421,13 @@ fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
     // 1 because it includes the "always 1" value
     assert_eq!(pub_input.len(), 1 + MAX_VALUE_SIGNALS);
 
+    let [_, pt1, pt2, value @ ..] = pub_input else {
+        unreachable!()
+    };
+
     // Convert compressed form back into bytes.
     let mut bytes = Vec::with_capacity(MAX_VALUE_SIGNALS * 31);
-    for v in &pub_input[1..1 + MAX_VALUE_SIGNALS] {
+    for v in value {
         let mut chunk = v.to_bytes_be();
 
         // Pad to fixed size (31 bytes)
@@ -442,6 +447,7 @@ fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
 
     ParsedPubInput {
         value: String::from_utf8(bytes).expect("Invalid UTF-8 (unexpected for valid JSON)"),
+        binding: Binding::from_passthrough([pt1, pt2]),
     }
 }
 
@@ -568,7 +574,7 @@ struct QueuedJob {
     circuit: CircuitId,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 enum Binding {
     CardanoShelley(CardanoAddr),
@@ -581,11 +587,44 @@ impl Binding {
             Binding::CardanoShelley(addr) => [BigInt::from(1), BigInt::from_be_bytes(&addr.0)],
         }
     }
+    fn from_passthrough(v: [&BigUint; 2]) -> Self {
+        let discriminant = v[0] & BigUint::from(0xffffffffu64);
+        let discriminant: u32 = discriminant.try_into().unwrap();
+        match discriminant {
+            1 => {
+                let mut bytes = v[1].to_bytes_be();
+                bytes.resize(29, 0);
+                Self::CardanoShelley(CardanoAddr(bytes.try_into().unwrap()))
+            }
+            _ => unimplemented!("unexpected passthrough value"),
+        }
+    }
 }
 
+// 1 byte for the network + 28 byte address
 #[derive(Debug)]
-struct CardanoAddr([u8; 28]);
+struct CardanoAddr([u8; 29]);
 
+impl serde::Serialize for CardanoAddr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use pallas_addresses::{Address, ShelleyAddress, ShelleyPaymentPart};
+
+        // ShelleyPaymentPart::Key(self.0.into())
+        let addr = Address::Shelley(ShelleyAddress::new(
+            self.0[0].into(),
+            ShelleyPaymentPart::Key(self.0[1..].into()),
+            pallas_addresses::ShelleyDelegationPart::Null,
+        ));
+        let addr = addr
+            .to_bech32()
+            .expect("28-byte address to have valid/known hrp");
+
+        serializer.serialize_str(&addr)
+    }
+}
 impl<'de> serde::Deserialize<'de> for CardanoAddr {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -596,7 +635,12 @@ impl<'de> serde::Deserialize<'de> for CardanoAddr {
         let s = String::deserialize(deserializer)?;
         match Address::from_bech32(&s) {
             Ok(Address::Shelley(addr)) => match addr.payment() {
-                ShelleyPaymentPart::Key(hash) => Ok(Self(**hash)),
+                ShelleyPaymentPart::Key(hash) => {
+                    let mut v = [0; 29];
+                    v[0] = addr.network().value();
+                    v[1..].copy_from_slice(hash.as_slice());
+                    Ok(Self(v))
+                }
                 ShelleyPaymentPart::Script(_) => Err(serde::de::Error::custom(
                     "Shelly::Script addresses not supported yet",
                 )),

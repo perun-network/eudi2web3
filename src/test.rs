@@ -131,6 +131,7 @@ fn compute_proof_testing_issuer_credential_bls12381_small_nocrypto_snarkjs() {
     .unwrap();
     dbg!(&input.value);
     let input = vec![
+        ("passthrough".to_owned(), vec![0.into(), 1.into()]),
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
@@ -166,7 +167,7 @@ fn compute_proof_using_generated_credential_bn254_small_nocrypto() {
     ignore = "-F slow-tests --release"
 )]
 fn compute_proof_using_generated_credential_bls12381_tiny() {
-    compute_proof_using_generated_credential_inner(
+    compute_proof_using_generated_credential_inner_with_prover(
         &CircuitId {
             curve: "bls12-381".to_owned(),
             circuit: "tiny".to_owned(),
@@ -174,6 +175,7 @@ fn compute_proof_using_generated_credential_bls12381_tiny() {
         },
         small_claims(),
         false,
+        |p| SnarkjsProver::new(p, "bls12-381".to_owned()).unwrap(),
     );
 }
 #[test]
@@ -373,6 +375,7 @@ fn proof_validity_bls12381_minimal() {
         Curve::Bls12381,
         "minimal",
         vec![
+            ("passthrough".to_owned(), vec![0.into(), 1.into()]),
             ("value_compressed".to_owned(), vec![42.into(), 42.into()]),
             ("valid".to_owned(), vec![65.into()]),
         ],
