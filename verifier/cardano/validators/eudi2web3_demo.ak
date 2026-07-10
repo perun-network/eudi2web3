@@ -29,12 +29,16 @@ validator eudi2web3_demo(vk: SnarkVerificationKey) {
     _utxo: OutputReference,
     _self: Transaction,
   ) {
-    let public = [
-      1,                                            // Binding format: CardanoShelley
-      bytearray.to_int_big_endian(redeemer.addr),   // The address this is bound to
-      ..bytes_to_ints(redeemer.value, 31)           // The claim value
-    ]
+    let public =
+      [
+        1,
+        // Binding format: CardanoShelley
+        bytearray.to_int_big_endian(redeemer.addr),
+        ..// The address this is bound to
+        bytes_to_ints(redeemer.value, 31)
+      ]
 
+    // The claim value
     // PERFORMANCE: We probably want to compress multiple bytes into a single signal (in circuit and here),
     // which is why I added the size argument.
     if groth_verify(vk, redeemer.proof, public) {
@@ -42,7 +46,6 @@ validator eudi2web3_demo(vk: SnarkVerificationKey) {
     } else {
       fail
     }
-
     // redeemer.value is now known to come from a credential that was bound to redeemer.addr.
     // Note that with only the checks above, redeemer.addr may be any value, not necessarily a cardano address.
     // In this demo we do nothing with that fact.
@@ -158,9 +161,10 @@ test proof_verify_old_uncompressed() {
         piC: #"a9328d59e987d09576bba3cdf103f3a3ab098b9b29979b0429b6e2625461e1bf005f7f3a6b9c0b43c2c6602b2a4ecfd4",
       },
       value: #"4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80",
-      addr: #"", // This proof didn't have that.
+      addr: #"",
     }
 
+  // This proof didn't have that.
   let public = bytes_to_ints(redeemer.value, 1)
   let res = groth_verify(vk, redeemer.proof, public)
   if res {
@@ -203,9 +207,10 @@ test proof_verify() {
         piC: #"b3abb6fda1d72b1e1f24cb03e5134ce8c3db64a80d71b7ea6b816e30148de13efdc2fd5d77c0c5e19c54a36985fb8655",
       },
       value: #"4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e",
-      addr: #"", // This proof didn't have that.
+      addr: #"",
     }
 
+  // This proof didn't have that.
   let public = bytes_to_ints(redeemer.value, 31)
   let res = groth_verify(vk, redeemer.proof, public)
   if res {
