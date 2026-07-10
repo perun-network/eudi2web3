@@ -1,6 +1,7 @@
 [submodule "circuits/circom-ecdsa-p256"]
 	path = circuits/circom-ecdsa-p256
 	url = https://github.com/privacy-ethereum/circom-ecdsa-p256.git
+	ignore = dirty
 [submodule "circuits/zk-email-verify"]
 	path = circuits/zk-email-verify
 	url = https://github.com/zkemail/zk-email-verify.git

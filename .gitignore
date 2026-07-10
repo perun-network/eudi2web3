@@ -6,10 +6,13 @@
 /zkey
 /ptau
 
-# Key material (Cardano)
+# Key material
 *.vk
 *.sk
 me.addr
+*.pem
 
 # useful for debugging
 input.json
+constraint_counts.txt
+
