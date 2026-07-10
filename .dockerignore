@@ -1,0 +1,4 @@
+zkey
+!zkey/**/*.r1cs
+!zkey/**/*.wasm
+

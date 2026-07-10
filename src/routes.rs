@@ -12,6 +12,7 @@ use rand::{Rng, distributions::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Digest as _;
+use tower_http::services::ServeDir;
 
 use crate::{
     AppState, Binding, Job, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof,
@@ -19,17 +20,18 @@ use crate::{
 };
 
 const DOMAIN: &str = "eudi2web3.erdstall.dev";
-const REQUEST_CERT: &str = "/var/www/eudi2web3/fubar_cert.pem";
-const REQUEST_PRIVKEY: &str = "/var/www/eudi2web3/fubar_privkey.pem";
+const REQUEST_CERT: &str = "fubar_cert.pem";
+const REQUEST_PRIVKEY: &str = "fubar_privkey.pem";
 
 pub fn build_router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/circuits", get(circuits))
-        .route("/submit_data", post(submit_data))
-        .route("/vp_request/{id}", post(vp_request))
-        .route("/vp_auth/{id}", post(vp_auth))
-        .route("/status", get(status))
-        .route("/status/{id}", get(job_status))
+        .route("/api/circuits", get(circuits))
+        .route("/api/submit_data", post(submit_data))
+        .route("/api/vp_request/{id}", post(vp_request))
+        .route("/api/vp_auth/{id}", post(vp_auth))
+        .route("/api/status", get(status))
+        .route("/api/status/{id}", get(job_status))
+        .fallback_service(ServeDir::new("static"))
 }
 
 #[derive(Debug, Deserialize)]

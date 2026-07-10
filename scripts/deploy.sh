@@ -1,26 +1,23 @@
 set -e
 
-# --delete to avoid outdated files (e.g. after a rename).
-#   it will not delete excluded files, which is what we want.
-# .a files in zkey/lib are not portable.
-# -a includes -t and thus preserves mtime => make should run as expected and not regenerate the key material.
-rsync -av --delete \
-    --exclude .git \
-    --exclude ptau \
-    --exclude zkey/lib \
-    --exclude 'zkey/**/*.sym' \
-    --exclude circuits \
-    --exclude target \
-    . erdstall:/mnt/eudi2web3/
-#    . erdstall:/var/www/eudi2web3/
+# Build docker image
+docker build -t eudi2web3:dev .
 
-exit 0
+# Update the image on the server-side if it changed
+LOCAL=$(docker image inspect eudi2web3:dev --format '{{.Id}}')
+REMOTE=$(ssh zombienet 'docker image inspect eudi2web3:dev --format "{{.Id}}" 2>/dev/null || true')
+if [ "$LOCAL" != "$REMOTE" ]; then
+    docker save eudi2web3:dev | gzip | ssh zombienet 'gunzip | docker load'
+fi
 
-ssh erdstall '
-    set -e
-    # cd /var/www/eudi2web3
-    cd /mnt/eudi2web3
-    make zkey/lib/{libbls12-381_minimal.a,libbls12-381_tiny.a,libbn254_minimal.a,libbn254_small_nocrypto.a,libbn254_tiny_nocrypto.a}
-    cargo build --release
-    # sudo systemctl restart eudi2web3
-    '
+# Transfer all other files needed to run the server
+rsync -av \
+    --include 'fubar_*.pem' \
+    --include 'zkey/' \
+    --include 'zkey/bls12-381/' \
+    --include 'zkey/bls12-381/*.0001.zkey' \
+    --include 'zkey/bn254/' \
+    --include 'zkey/bn254/small*.0001.zkey' \
+    --exclude='*' \
+    . zombienet:/home/zombienetadmin/eudi/
+
