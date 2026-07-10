@@ -669,6 +669,9 @@ pub async fn run_server() {
         let t1 = Instant::now();
         let prover: Box<dyn Prover> = match id.curve.as_str() {
             "bn254" => Box::new(MultiuseProver::new(&zkey_path).unwrap()),
+            // The SnarkjsProver can be used with bn254, too, but testing has shown it is approx.
+            // 7 times slower. How much of this is due to zkey loading and how much is from the
+            // math/implementation itself I do not know.
             "bls12381" | "bls12-381" => {
                 Box::new(SnarkjsProver::new(zkey_path.clone(), id.curve.clone()).unwrap())
             }
