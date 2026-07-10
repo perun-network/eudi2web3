@@ -418,10 +418,10 @@ struct ParsedPubInput {
 // We could also take this from the input data instead of the witness (after proof gen). That would
 // be simpler. But this way we show it can be calculated from the public input (and how).
 fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
-    // 1 because it includes the "always 1" value
-    assert_eq!(pub_input.len(), 1 + MAX_VALUE_SIGNALS);
+    // +1 because it includes the "always 1" value
+    assert_eq!(pub_input.len(), 3 + MAX_VALUE_SIGNALS);
 
-    let [_, pt1, pt2, value @ ..] = pub_input else {
+    let [_, value @ .., pt1, pt2] = pub_input else {
         unreachable!()
     };
 
@@ -446,7 +446,7 @@ fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
     }
 
     ParsedPubInput {
-        value: String::from_utf8(bytes).expect("Invalid UTF-8 (unexpected for valid JSON)"),
+        value: String::from_utf8_lossy(&bytes).to_string(),
         binding: Binding::from_passthrough([pt1, pt2]),
     }
 }
@@ -592,9 +592,11 @@ impl Binding {
         let discriminant: u32 = discriminant.try_into().unwrap();
         match discriminant {
             1 => {
-                let mut bytes = v[1].to_bytes_be();
-                bytes.resize(29, 0);
-                Self::CardanoShelley(CardanoAddr(bytes.try_into().unwrap()))
+                let bytes = v[1].to_bytes_be();
+                assert!(bytes.len() <= 29);
+                let mut out = [0; 29];
+                out[29 - bytes.len()..].copy_from_slice(&bytes);
+                Self::CardanoShelley(CardanoAddr(out))
             }
             _ => unimplemented!("unexpected passthrough value"),
         }

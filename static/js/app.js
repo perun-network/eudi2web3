@@ -53,7 +53,10 @@ function setButtonLoading(button, isLoading) {
 }
 
 function scrollIntoViewSoon(element, block = "nearest") {
-  setTimeout(() => element.scrollIntoView({ behavior: "smooth", block }), SCROLL_DELAY_MS);
+  setTimeout(
+    () => element.scrollIntoView({ behavior: "smooth", block }),
+    SCROLL_DELAY_MS,
+  );
 }
 
 function setQueueState(state, label) {
@@ -137,20 +140,20 @@ async function loadCircuits() {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    
+
     const circuits = await response.json();
-    
+
     // Clear the loading option
     circuitInput.innerHTML = "";
-    
+
     // Add a default option
     const defaultOption = document.createElement("option");
     defaultOption.value = "";
     defaultOption.textContent = "Select a circuit...";
     circuitInput.appendChild(defaultOption);
-    
+
     // Add circuit options
-    circuits.forEach(circuit => {
+    circuits.forEach((circuit) => {
       const option = document.createElement("option");
       // Create a unique identifier for the circuit
       option.value = JSON.stringify(circuit.id);
@@ -158,15 +161,15 @@ async function loadCircuits() {
       option.textContent = `${circuit.id.circuit} (${circuit.id.curve}, ${circuit.id.contributions} contributions)`;
       circuitInput.appendChild(option);
     });
-    
+
     // If there's only one circuit, select it by default
     if (circuits.length === 1) {
       circuitInput.selectedIndex = 1; // Select the first (and only) circuit
     }
-    
   } catch (error) {
     console.error("Failed to load circuits:", error);
-    circuitInput.innerHTML = '<option value="">Failed to load circuits - using default</option>';
+    circuitInput.innerHTML =
+      '<option value="">Failed to load circuits - using default</option>';
   }
 }
 
@@ -266,7 +269,16 @@ function showQueueError(message) {
 }
 
 function applyQueueUpdate(status, data = {}) {
-  const { queue_pos, queue_len, eta_seconds, proof, pub_input, parsed, tx_hash, tx_cbor } = data;
+  const {
+    queue_pos,
+    queue_len,
+    eta_seconds,
+    proof,
+    pub_input,
+    parsed,
+    tx_hash,
+    tx_cbor,
+  } = data;
 
   if (status === "queued" || status === "processing") {
     setVisible(queueStatusDiv, true);
@@ -301,18 +313,19 @@ function applyQueueUpdate(status, data = {}) {
     // Display human-readable parsed output first (most important for users)
     if (parsed) {
       // Handle ParsedPubInput struct: {value: "actual content"}
-      let displayContent;
-      if (parsed.value !== undefined) {
-        // Extract the value field from ParsedPubInput struct
-        displayContent = parsed.value;
-      } else if (typeof parsed === 'string') {
-        // Fallback for simple string
-        displayContent = parsed;
-      } else {
-        // Fallback for other object types
-        displayContent = JSON.stringify(parsed, null, 2);
-      }
-      
+      // let displayContent;
+      // if (parsed.value !== undefined) {
+      //   // Extract the value field from ParsedPubInput struct
+      //   displayContent = parsed.value;
+      // } else if (typeof parsed === "string") {
+      //   // Fallback for simple string
+      //   displayContent = parsed;
+      // } else {
+      //   // Fallback for other object types
+      //   displayContent = JSON.stringify(parsed, null, 2);
+      // }
+      let displayContent = JSON.stringify(parsed, null, 2);
+
       parsedOutputCode.textContent = displayContent;
       setVisible(parsedOutputSection, true);
     } else {
@@ -342,13 +355,13 @@ function applyQueueUpdate(status, data = {}) {
   if (status === "error") {
     // Handle UserError which can be a string or object
     let errorMessage = "Proof generation failed.";
-    if (typeof data === 'string') {
+    if (typeof data === "string") {
       errorMessage = data;
     } else if (data && data.message) {
       errorMessage = data.message;
     } else if (data && data.error) {
       errorMessage = data.error;
-    } else if (data && typeof data === 'object') {
+    } else if (data && typeof data === "object") {
       errorMessage = JSON.stringify(data);
     }
     showQueueError(errorMessage);
@@ -433,21 +446,21 @@ function startProofPolling(requestId) {
       } else if (status === "success") {
         const { proof, pub_input, parsed, tx } = data;
         jobStatus = "success";
-        
+
         applyQueueUpdate("success", {
           proof,
           pub_input,
           parsed,
           tx_hash: tx,
         });
-        
+
         stopProofPolling();
       } else if (status === "error") {
         jobStatus = "error";
-        
+
         // The error data is directly in the response for UserError
         applyQueueUpdate("error", data);
-        
+
         stopProofPolling();
       }
     } catch (err) {
@@ -511,8 +524,8 @@ function initializeProofRequest() {
 
     try {
       // Prepare the request body
-      const requestBody = { addr, publish };
-      
+      const requestBody = { binding: { cardanoshelley: addr }, publish };
+
       // Include circuit if one is selected
       if (circuitValue) {
         try {
