@@ -113,7 +113,7 @@ pub fn write_wtns_file(curve: &str, wit: &[BigInt], path: impl AsRef<Path>) -> R
     let (prime_dec, field_size) = match curve {
         // https://docs.rs/ark-bn254/latest/ark_bn254/
         "bn254" => (
-            b"21888242871839275222246405745257275088696311157297823662689037894645226208583"
+            b"21888242871839275222246405745257275088548364400416034343698204186575808495617"
                 .as_slice(),
             32,
         ),
