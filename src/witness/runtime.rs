@@ -5,6 +5,8 @@ use std::{
     ptr::null_mut,
 };
 
+use tracing::{info, warn};
+
 #[unsafe(no_mangle)]
 extern "C" fn trap(trap: i32) -> ! {
     // Trap is a typedef enum defined in w2c2_base.h
@@ -16,7 +18,7 @@ extern "C" fn trap(trap: i32) -> ! {
         4 => "allocation failed",
         _ => "unknown",
     };
-    eprintln!("trap called: {description}, don't know which circuit");
+    warn!("trap called: {description}, don't know which circuit");
     // We MUST NOT panic and let the panic propagate through C, that is UB.
     // We also must not return back into C from this function, that is also UB.
     // Thus our only options are:
@@ -95,7 +97,7 @@ struct WasmTable {
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 extern "C" fn runtime__exceptionHandler(_arg: *const c_void) {
-    eprintln!(
+    warn!(
         "runtime__exceptionHandler called, don't know which circuit or how to parse the argument"
     );
 }
@@ -103,7 +105,7 @@ extern "C" fn runtime__exceptionHandler(_arg: *const c_void) {
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 extern "C" fn runtime__printErrorMessage(_arg: *const c_void) {
-    eprintln!(
+    warn!(
         "runtime__printErrorMessage called, don't know which circuit or how to parse the argument"
     );
 }
@@ -128,7 +130,7 @@ extern "C" fn circuit_runtime__exceptionHandler(
         6 => "Input signal array access exceeds the size".to_owned(),
         _ => format!("Unknown: {code}"),
     };
-    eprintln!("[{circuit_name}] exceptionHandler called: {code}")
+    warn!(%circuit_name, code, "circuit exceptionHandler called")
 }
 
 #[unsafe(no_mangle)]
@@ -147,7 +149,7 @@ extern "C" fn circuit_log_signal(
 
     let value = num_bigint::BigUint::from_slice(data);
 
-    eprintln!("[{circuit_name}] {value}");
+    info!(%circuit_name, %value, "Circom log_signal");
 }
 // See https://github.com/iden3/snarkjs/blob/9a8f1c0083d18b9b5e18f526cfd729e7259423be/test/circuit2/circuit_js/witness_calculator.cjs#L44
 #[unsafe(no_mangle)]
@@ -166,6 +168,6 @@ extern "C" fn circuit_log_message(
     let message = message.to_string_lossy();
     let message = message.strip_suffix('\n').unwrap_or(&message);
     if !message.is_empty() {
-        eprintln!("[{circuit_name}] {message}");
+        info!(%circuit_name, message, "Circom log_message");
     }
 }

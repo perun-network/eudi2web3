@@ -9,6 +9,7 @@ use pallas_txbuilder::{
 use pallas_wallet::PrivateKey;
 use reqwest::StatusCode;
 use serde::Deserialize;
+use tracing::{debug, info, instrument};
 
 use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
 
@@ -28,7 +29,7 @@ pub async fn deploy(path: &str) {
 
     let script_utxos = get_utxos(&script_addr.to_bech32().unwrap()).await;
     if !script_utxos.is_empty() {
-        eprintln!("Script already deployed, doing nothing");
+        info!("Script already deployed, doing nothing");
         return;
     }
 
@@ -68,6 +69,7 @@ pub async fn deploy(path: &str) {
     submit_tx(tx.tx_bytes.0).await;
 }
 
+#[instrument(skip_all)]
 pub async fn publish(script_path: &str, proof: &ProofWithPubInput) -> [u8; 32] {
     let redeemer = encode_redeemer(proof);
     dbg!(hex::encode(&redeemer));
@@ -134,14 +136,17 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     //     mem: 80_000,             // 76_865           57.75 k
     //     steps: 2_200_000_000,    // 2_150_594_795     2.14 b
     // };
-    dbg!(&ex_units);
     let tx = tx
-        .add_spend_redeemer(script_locked.to_input(), redeemer, Some(ex_units))
+        .add_spend_redeemer(script_locked.to_input(), redeemer, Some(ex_units.clone()))
         .build_conway_raw()
         .unwrap();
 
-    let tx_bytes = hex::encode(&tx.tx_bytes.0);
-    dbg!(tx_bytes);
+    debug!(
+        mem = ex_units.mem,
+        steps = ex_units.steps,
+        tx_bytes = tx.tx_bytes.0.encode_hex::<String>(),
+        "Transaction"
+    );
 
     let sk = read_sk().await;
     // Sign changes tx.tx_bytes (adding the signature)
@@ -471,7 +476,7 @@ async fn eval_execution_units(
 
     dbg!(&req);
     let res = client.execute(req).await.unwrap().text().await.unwrap();
-    eprintln!("{res}");
+    dbg!(&res);
 
     let res: EvalResult = serde_json::from_str(&res).unwrap();
     let res = res.result.evaluation_result.spend_1;
@@ -481,6 +486,7 @@ async fn eval_execution_units(
     }
 }
 
+#[instrument(skip_all)]
 async fn submit_tx(cbor: Vec<u8>) {
     let blockfrost_key =
         std::env::var("BLOCKFROST_KEY").expect("No BLOCKFROST_KEY environment variable");
@@ -503,7 +509,7 @@ async fn submit_tx(cbor: Vec<u8>) {
     //     .await
     //     .unwrap();
 
-    println!("{res}");
+    dbg!(res);
 }
 
 #[cfg(test)]

@@ -1,8 +1,7 @@
 use std::{
     collections::HashMap,
     num::NonZeroUsize,
-    sync::{Arc, atomic::AtomicU64},
-    time::Instant,
+    sync::{Arc, Once, atomic::AtomicU64},
 };
 
 use base64::{
@@ -10,12 +9,15 @@ use base64::{
     prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD},
 };
 use crossbeam::channel::Receiver;
+use hex::ToHex;
 use num_bigint::{BigInt, BigUint};
 use num_traits::FromBytes;
 use prover::{MultiuseProver, ProofWithPubInput};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tokio::net::{TcpListener, UnixListener};
+use tracing::{debug, error, info, info_span, instrument, trace, warn};
+use tracing_subscriber::fmt::format::FmtSpan;
 use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::{
@@ -150,10 +152,12 @@ struct SegmentSize {
 }
 
 // TODO: This function is a mess.
+#[instrument(skip_all)]
 fn presentation2input(
     params: CircuitParams,
     presentation: &str,
 ) -> Result<CircuitInput, UserError> {
+    trace!(presentation);
     // Get the relevant data from the credential to pass to input
     let segments: Vec<&str> = presentation.split('~').collect();
     let (message, sig) = segments
@@ -163,11 +167,12 @@ fn presentation2input(
         .ok_or(UserError::BadJwtFormat)?;
 
     let (header, body) = message.split_once('.').ok_or(UserError::BadJwtFormat)?;
-    let sig = BASE64_URL_SAFE_NO_PAD.decode(sig).map_err(|e| {
-        dbg!(e);
+    let sig = BASE64_URL_SAFE_NO_PAD.decode(sig).map_err(|err| {
+        warn!(?err, data = sig, "Could not base64 decode JWT signature");
         UserError::BadJwtFormat
     })?;
     if sig.len() != 64 {
+        warn!(len = sig.len(), "Unexpected signature length");
         return Err(UserError::UnexpectedSigLen);
     }
 
@@ -178,29 +183,40 @@ fn presentation2input(
     // TODO: Ideally prove the chain is valid.
     // For now: Extract the pubkey and assume it is trusted.
     // SECURITY: This is of course not secure.
-    let header_json = BASE64_URL_SAFE_NO_PAD.decode(header).map_err(|e| {
-        dbg!(header, e);
+    let header_json = BASE64_URL_SAFE_NO_PAD.decode(header).map_err(|err| {
+        warn!(?err, data = header, "Could not base64 decode JWT header");
         UserError::BadJwtFormat
     })?;
-    let header_decoded: Header = serde_json::from_slice(&header_json).map_err(|e| {
-        dbg!(e);
+    let header_decoded: Header = serde_json::from_slice(&header_json).map_err(|err| {
+        warn!(?err, data = header, "Could not json decode JWT header");
         UserError::BadJwtFormat
     })?;
     if header_decoded.alg != "ES256" {
+        warn!(alg = header_decoded.alg, "Unsupported signature algorithm");
         return Err(UserError::UnsupportedSigAlg);
     }
     let sig_alg = SigAlg::ES256;
+    warn!("We are currently accepting self any credentials, without making the issuer public");
     let issuer_pk = match header_decoded.x5c.last() {
         Some(leaf_cert) => {
-            let der = BASE64_STANDARD.decode(leaf_cert).map_err(|e| {
-                dbg!(e);
+            let der = BASE64_STANDARD.decode(leaf_cert).map_err(|err| {
+                warn!(
+                    ?err,
+                    data = leaf_cert,
+                    "Could not base64 decode x5c certificate"
+                );
                 UserError::BadJwtFormat
             })?;
-            let (_, cert) = X509Certificate::from_der(&der).map_err(|e| {
-                dbg!(e);
+            let (_, cert) = X509Certificate::from_der(&der).map_err(|err| {
+                warn!(
+                    ?err,
+                    data = leaf_cert,
+                    "Could not DER decode x5c certificate"
+                );
                 UserError::BadJwtFormat
             })?;
             let pk = cert.public_key().subject_public_key.as_ref();
+            // TODO: This could be used as a DOS attack surface by using a different signature scheme.
             assert_eq!(pk.len(), 65);
             pk[1..].try_into().unwrap()
         }
@@ -210,18 +226,23 @@ fn presentation2input(
             let issuer_pk = &issuer_pk[issuer_pk.len() - 65..];
             assert_eq!(issuer_pk[0], 0x04);
             let issuer_pk: [u8; 64] = issuer_pk[1..].try_into().unwrap();
+            info!(
+                pk = issuer_pk.encode_hex::<String>(),
+                "Using hard coded issuer public key"
+            );
             issuer_pk
         }
     };
 
     // Find the message offset for the key we are interested in.
-    let body_json = BASE64_URL_SAFE_NO_PAD.decode(body).map_err(|e| {
-        dbg!(e);
+    let body_json = BASE64_URL_SAFE_NO_PAD.decode(body).map_err(|err| {
+        warn!(?err, data = body, "Could not base64 decode JWT body");
         UserError::BadJwtFormat
     })?;
+    let key = "given_name";
     // TODO: Cleanup this mess
-    let mut pos = keyfinder::find_key_jsonbytes(&body_json, "given_name").map_err(|e| {
-        dbg!(e);
+    let mut pos = keyfinder::find_key_jsonbytes(&body_json, key).map_err(|err| {
+        warn!(?err, data = body, "Could not json decode JWT body");
         UserError::BadJwtFormat
     })?;
     let mut distance2quote = 0;
@@ -235,28 +256,34 @@ fn presentation2input(
     let mut sd_count = 0;
     let seg0_bytes;
     let value = match &pos {
-        Some(pos) => pos.value,
+        Some(pos) => {
+            debug!(key, ?pos, "Found key in JWT body");
+            pos.value
+        }
         None => {
+            debug!(
+                key,
+                "Key not found in body, looking through disclosure segment 0"
+            );
             let hash = sha2::Sha256::digest(seg0);
             let hash = BASE64_URL_SAFE_NO_PAD.encode(hash);
 
-            dbg!(&hash);
+            debug!(hash, "Disclosure segment 0");
 
             // TODO: Circuit does not have proper support for selective disclosure, yet and treaing _sd
             // is too large for the current MAX_VALUE_BYTES. For testing we use "iss" instead if
             // "given_name" is not in the root.
             let arr_pos = keyfinder::find_array_entry_by_str_value(&body_json, "_sd", &hash)
-                .map_err(|e| {
-                    dbg!(e);
+                .map_err(|err| {
+                    warn!(?err, data = body, "Could not json decode JWT body");
                     UserError::BadJwtFormat
                 })?;
             // pos = keyfinder::find_key_jsonbytes(&body_json, "iss")
             //     .map_err(|_| UserError::BadJwtFormat)?;
 
-            dbg!(&pos, &arr_pos);
-
             match &arr_pos {
                 Some(arr_pos) => {
+                    debug!(key, ?arr_pos, "Found segment 0 hash in _sd");
                     sd_index = arr_pos.array_index;
                     sd_count = arr_pos.array_len;
                     pos = Some(arr_pos.pos);
@@ -266,26 +293,32 @@ fn presentation2input(
                     // at the quote.
                     distance2quote = arr_pos.pos.value_start - arr_pos.pos.key_end_quote - 3;
 
-                    seg0_bytes = BASE64_URL_SAFE_NO_PAD.decode(seg0).map_err(|e| {
-                        dbg!(e);
+                    seg0_bytes = BASE64_URL_SAFE_NO_PAD.decode(seg0).map_err(|err| {
+                        warn!(?err, data = seg0, "Could not base64 decode segment 0");
                         UserError::BadJwtFormat
                     })?;
 
                     let pos2 =
                         keyfinder::find_array_follower_by_str_value(&seg0_bytes, "given_name")
-                            .map_err(|e| {
-                                dbg!(e);
+                            .map_err(|err| {
+                                warn!(?err, data = seg0, "Could not json decode segment 0");
                                 UserError::ClaimNotFound
                             })?;
 
+                    if pos2.is_none() {
+                        error!(
+                            key,
+                            data = presentation,
+                            "Key not found, nested selective disclosure not fully supported, yet"
+                        );
+                    }
+
                     // TODO: Properly handle nested SDs.
                     let pos2 = pos2.unwrap();
-                    dbg!(&pos2);
 
                     seg0_payload_off = (pos2.key_start_quote - 1) / 3 * 4;
                     seg0_json_align = (pos2.key_start_quote - 1) % 3;
-
-                    dbg!(&seg0[seg0_payload_off..]);
+                    debug!(key, pos=?pos2, seg0_payload_off, seg0_json_align, "Found key in segment 0");
 
                     pos2.value
                 }
@@ -293,6 +326,7 @@ fn presentation2input(
             }
         }
     };
+    // TODO: I think this is redundant/unreachable.
     let Some(pos) = pos else {
         return Err(UserError::ClaimNotFound);
     };
@@ -314,27 +348,40 @@ fn presentation2input(
 
     let segment_sizes = match segments.len() {
         0 | 1 => unreachable!(), // Checked by code above
-        2 => vec![SegmentSize {
-            sd_index: 0,
-            sd_count: 0,
-            length: body.len(),
-            payload_offset: payload_off,
-        }],
-        3 => vec![
-            // TODO: If there are no disclosure segments we are lying with this length.
-            SegmentSize {
-                sd_index,
-                sd_count,
-                length: body.len(),
-                payload_offset: payload_off,
-            },
-            SegmentSize {
+        2 => {
+            info!(header = header.len(), body = body.len(), "Credential size");
+            vec![SegmentSize {
                 sd_index: 0,
                 sd_count: 0,
-                length: seg0.len(),
-                payload_offset: seg0_payload_off,
-            },
-        ],
+                length: body.len(),
+                payload_offset: payload_off,
+            }]
+        }
+        3 => {
+            info!(
+                header = header.len(),
+                body = body.len(),
+                seg0 = seg0.len(),
+                body_sd_idx = sd_index,
+                body_sd_count = sd_count,
+                "Credential size"
+            );
+            vec![
+                // TODO: If there are no disclosure segments we are lying with this length.
+                SegmentSize {
+                    sd_index,
+                    sd_count,
+                    length: body.len(),
+                    payload_offset: payload_off,
+                },
+                SegmentSize {
+                    sd_index: 0,
+                    sd_count: 0,
+                    length: seg0.len(),
+                    payload_offset: seg0_payload_off,
+                },
+            ]
+        }
         _ => unimplemented!("Currently does not support arbitrary disclosure counts"),
     };
 
@@ -350,12 +397,27 @@ fn presentation2input(
 
     // Various checks whether the circuit can process this VP
     if sha2padded_len(message.len()) > params.payload {
+        warn!(
+            len = message.len(),
+            max = params.payload,
+            "JWT exceeds max payload size"
+        );
         return Err(UserError::JwtTooLarge);
     }
     if header.len() > params.header {
+        warn!(
+            len = header.len(),
+            max = params.header,
+            "JWT exceeds max header size"
+        );
         return Err(UserError::HeaderTooLarge);
     }
     if pos.value.len() > MAX_VALUE_BYTES {
+        warn!(
+            len = pos.value.len(),
+            max = MAX_VALUE_BYTES,
+            "value exceeds max size"
+        );
         return Err(UserError::ValueTooLarge);
     }
 
@@ -417,6 +479,7 @@ struct ParsedPubInput {
 
 // We could also take this from the input data instead of the witness (after proof gen). That would
 // be simpler. But this way we show it can be calculated from the public input (and how).
+#[instrument(level = tracing::Level::DEBUG, skip_all)]
 fn pubinput2parsed(pub_input: &[BigUint]) -> ParsedPubInput {
     // +1 because it includes the "always 1" value
     assert_eq!(pub_input.len(), 3 + MAX_VALUE_SIGNALS);
@@ -655,34 +718,31 @@ impl<'de> serde::Deserialize<'de> for CardanoAddr {
     }
 }
 
+/// Initializes the tracing subscriber.
+///
+/// Can be called multiple times.
+pub fn init_tracing() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let res = tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_span_events(FmtSpan::CLOSE)
+            .try_init();
+
+        match res {
+            Ok(_) => tracing::info!("tracing_subscriber initialized"),
+            Err(err) => tracing::error!(?err, "Could not register tracing_subscriber"),
+        }
+    })
+}
+
 pub async fn run_server() {
     let bind = std::env::var("BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
 
-    let mut circuits = witness::get_circuits();
-
     // TODO: This is not ideal as it blocks the entire API, but I didn't want to bother with lazy loading
     // of the provers, yet.
-    println!("Loading {} zkeys ...", circuits.len());
-    let t0 = Instant::now();
-    for (id, e) in &mut circuits {
-        let zkey_path = id.zkey_path();
-        let t1 = Instant::now();
-        let prover: Box<dyn Prover> = match id.curve.as_str() {
-            "bn254" => Box::new(MultiuseProver::new(&zkey_path).unwrap()),
-            // The SnarkjsProver can be used with bn254, too, but testing has shown it is approx.
-            // 7 times slower. How much of this is due to zkey loading and how much is from the
-            // math/implementation itself I do not know.
-            "bls12381" | "bls12-381" => {
-                Box::new(SnarkjsProver::new(zkey_path.clone(), id.curve.clone()).unwrap())
-            }
-            _ => panic!("Unknown curve"),
-        };
-        e.prover = Some(prover);
-        // Not really useful for bls when SnarkjsProver is used, but I prefer having the full list
-        // of circuits logged at startup.
-        print_execution_time(&zkey_path, t1);
-    }
-    print_execution_time("ZKey loading finished", t0);
+    let mut circuits = witness::get_circuits();
+    load_circuits(&mut circuits);
 
     let job_queue = crossbeam::channel::unbounded();
     let state = Arc::new(AppState {
@@ -697,66 +757,102 @@ pub async fn run_server() {
 
     let app = routes::build_router().with_state(state);
     if bind.starts_with('/') {
+        info!(path = bind, "Listening on Unix socket");
         let listener = UnixListener::bind(bind).unwrap();
         axum::serve(listener, app).await.unwrap();
     } else {
+        info!(addr = bind, "Listening on TCP");
         let listener = TcpListener::bind(bind).await.unwrap();
         axum::serve(listener, app).await.unwrap();
     };
 }
 
+#[instrument(skip_all)]
+fn load_circuits(circuits: &mut HashMap<CircuitId, CircuitEntry>) {
+    info!(count = circuits.len(), "Loading circuits/proving keys ...");
+    for (id, e) in circuits {
+        let zkey_path = id.zkey_path();
+        let span = info_span!(
+            "circuit",
+            circuit = id.circuit,
+            curve = id.curve,
+            contrib = id.contributions
+        );
+        span.in_scope(|| {
+            let prover: Box<dyn Prover> = match id.curve.as_str() {
+                "bn254" => Box::new(MultiuseProver::new(&zkey_path).unwrap()),
+                // The SnarkjsProver can be used with bn254, too, but testing has shown it is approx.
+                // 7 times slower. How much of this is due to zkey loading and how much is from the
+                // math/implementation itself I do not know.
+                "bls12381" | "bls12-381" => {
+                    Box::new(SnarkjsProver::new(zkey_path.clone(), id.curve.clone()).unwrap())
+                }
+                _ => {
+                    error!("Ignoring unknown curve");
+                    return;
+                }
+            };
+            e.prover = Some(prover);
+        });
+    }
+}
+
 fn start_workers(workers: NonZeroUsize, input: Receiver<QueuedJob>, state: Arc<AppState>) {
-    for _ in 0..workers.into() {
+    info!(n = workers, "Starting worker threads");
+    for worker in 0..workers.into() {
         let input = input.clone();
         let state = state.clone();
         let rt = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
             while let Ok(job) = input.recv() {
-                let Some(circuit) = state.circuits.get(&job.circuit) else {
-                    state.update_job_queued(job.id, Job::Error(UserError::CircuitNotFound));
-                    continue;
-                };
-
-                let t0 = Instant::now();
-                let res = compute_proof(circuit, &job);
-                print_execution_time("compute_proof finished", t0);
-                match res {
-                    Ok(proof) if job.publish => {
-                        let s = state.clone();
-                        rt.spawn(async move {
-                            let t0 = Instant::now();
-                            let tx = Some(
-                                publish::cardano::publish(&job.circuit.cardano_path(), &proof)
-                                    .await,
-                            );
-                            print_execution_time("cardano::publish finished", t0);
-                            s.update_job_queued_async(
-                                job.id,
-                                Job::Completed(Box::new(CompletedJob { proof, tx })),
-                            )
-                            .await;
-                        });
-                    }
-                    Ok(proof) => {
-                        state.update_job_queued(
-                            job.id,
-                            Job::Completed(Box::new(CompletedJob { proof, tx: None })),
-                        );
-                    }
-                    Err(err) => {
-                        state.update_job_queued(job.id, Job::Error(err));
-                        continue;
-                    }
-                };
+                // TODO: We should probably catch panicks, otherwise we'll end up with no workers at
+                // some point.
+                process_job(worker, &state, job, &rt);
             }
         });
     }
 }
 
+#[instrument(skip_all, fields(
+    worker=worker,
+    id=job.id,
+))]
+fn process_job(worker: usize, state: &Arc<AppState>, job: QueuedJob, rt: &tokio::runtime::Handle) {
+    let Some(circuit) = state.circuits.get(&job.circuit) else {
+        state.update_job_queued(job.id, Job::Error(UserError::CircuitNotFound));
+        return;
+    };
+
+    let res = compute_proof(circuit, &job);
+    match res {
+        Ok(proof) if job.publish => {
+            let s = state.clone();
+            rt.spawn(async move {
+                let tx = Some(publish::cardano::publish(&job.circuit.cardano_path(), &proof).await);
+                s.update_job_queued_async(
+                    job.id,
+                    Job::Completed(Box::new(CompletedJob { proof, tx })),
+                )
+                .await;
+            });
+        }
+        Ok(proof) => {
+            state.update_job_queued(
+                job.id,
+                Job::Completed(Box::new(CompletedJob { proof, tx: None })),
+            );
+        }
+        Err(err) => {
+            state.update_job_queued(job.id, Job::Error(err));
+        }
+    };
+}
+
+#[instrument(skip_all, fields(circuit=job.circuit.circuit, curve=job.circuit.curve, contrib=job.circuit.contributions))]
 fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPubInput, UserError> {
     // TODO: The user address should be part of the (public) zk input, otherwise someone could Just
     // copy the proof and use it for their own address.
-    dbg!(&job);
+    trace!(?job);
 
     let prover = circuit.prover.as_ref().unwrap();
 
@@ -765,7 +861,6 @@ fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPub
     let params = circuit.params.ok_or(UserError::CircuitNotFound)?;
 
     // Build the input
-    let t0 = Instant::now();
     let input = presentation2input(params, &job.vp_token)?;
     let input = vec![
         (
@@ -775,23 +870,10 @@ fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPub
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
-    print_execution_time(&format!("[{}] Input preparation finished", job.id), t0);
 
-    println!("INFO: Generating witness ...");
-    let t0 = Instant::now();
-    let wit = (circuit.compute_witness)(input);
-    print_execution_time("Witness generation finished", t0);
-
-    println!("INFO: Generating proof ...");
-    let t0 = Instant::now();
-    let proof = prover.prove_noverify(wit).unwrap();
-    print_execution_time("Proof generation finished", t0);
-
-    println!("INFO: Verifying proof ...");
-    let t0 = Instant::now();
-    let valid = prover.verify(&proof).unwrap();
-    print_execution_time("Proof verification finished", t0);
-
+    let wit = compute_witness(circuit, input);
+    let proof = prove(wit, prover.as_ref()).unwrap();
+    let valid = verify(&proof, prover.as_ref()).unwrap();
     dbg!(valid);
 
     if valid {
@@ -802,6 +884,21 @@ fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPub
         // rust_witness isn't good (doesn't even exist without modifications).
         Err(UserError::UnknownErrorInvalidProof)
     }
+}
+
+#[instrument(skip_all)]
+fn compute_witness(circuit: &CircuitEntry, input: Vec<(String, Vec<BigInt>)>) -> Vec<BigInt> {
+    info!("Generating witness");
+    (circuit.compute_witness)(input)
+}
+#[instrument(skip_all)]
+fn prove(wit: Vec<BigInt>, prover: &dyn Prover) -> anyhow::Result<ProofWithPubInput> {
+    info!("Generating proof");
+    prover.prove_noverify(wit)
+}
+#[instrument(skip_all, ret)]
+fn verify(proof: &ProofWithPubInput, prover: &dyn Prover) -> anyhow::Result<bool> {
+    prover.verify(proof)
 }
 
 impl AppState {
@@ -822,23 +919,15 @@ impl AppState {
                 if cfg!(debug_assertions) {
                     panic!("Unexpected Job state: {j:?}");
                 } else {
-                    println!(
-                        "ERROR: update_job_queued: Unexpected Job state, not writing new state: {j:?}"
+                    error!(
+                        ?j,
+                        "update_job_queued: Unexpected Job state, not writing new state"
                     );
                 }
             }
-            None => println!("WARN: update_job_queued: Job does not exist"),
+            None => warn!("update_job_queued: Job does not exist"),
         }
     }
-}
-
-fn print_execution_time(msg: &str, start: Instant) {
-    let d = start.elapsed();
-    println!(
-        "INFO: {msg} {}.{:03} seconds",
-        d.as_secs(),
-        d.subsec_millis()
-    );
 }
 
 fn bebytes2limbs(coord: &[u8]) -> Vec<BigInt> {

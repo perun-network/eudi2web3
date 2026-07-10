@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::prover::Prover;
 
@@ -83,7 +84,7 @@ pub fn get_circuits() -> HashMap<CircuitId, CircuitEntry> {
                 continue;
             }
             let Some((circuit, contributions)) = base.rsplit_once('.') else {
-                eprintln!("Skipping zkey without contributions number: {name}");
+                warn!("Skipping zkey without contributions number: {name}");
                 continue;
             };
             // PERFORMANCE: We are potentially wasting a bunch of work here.

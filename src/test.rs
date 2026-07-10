@@ -1,7 +1,5 @@
-use std::time::Instant;
-
 use crate::{
-    ISSUER_PUBLIC, presentation2input, print_execution_time,
+    ISSUER_PUBLIC, presentation2input,
     prover::{MultiuseProver, Prover, SnarkjsProver},
     sdjwt, str2binary_sha2padding,
     witness::CircuitId,
@@ -82,6 +80,7 @@ fn verify_testing_issuer_credential_nocircuit() {
     ignore = "-F slow-tests --release"
 )]
 fn compute_proof_testing_issuer_credential_bn254_small_nocrypto() {
+    crate::init_tracing();
     let circuit = CircuitId {
         curve: "bn254".to_owned(),
         // TODO: We are using nocrypto here, mainly because I don't have ptau file large enough for the one with crypto.
@@ -91,7 +90,6 @@ fn compute_proof_testing_issuer_credential_bn254_small_nocrypto() {
     let e = crate::witness::get_circuit(&circuit).unwrap();
 
     // Build the input (this could probably run without -F slow-tests)
-    let t0 = Instant::now();
     let input = presentation2input(
         e.params.expect("circuit has no params configured"),
         VP_LATE_SD_ENTRY,
@@ -103,7 +101,6 @@ fn compute_proof_testing_issuer_credential_bn254_small_nocrypto() {
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
-    print_execution_time("Input preparation finished", t0);
 
     let prover = MultiuseProver::new(&circuit.zkey_path()).unwrap();
     run_proof_with_witness_gen(&circuit, prover, input);
@@ -114,6 +111,7 @@ fn compute_proof_testing_issuer_credential_bn254_small_nocrypto() {
     ignore = "-F slow-tests --release"
 )]
 fn compute_proof_testing_issuer_credential_bls12381_small_nocrypto_snarkjs() {
+    crate::init_tracing();
     let circuit = CircuitId {
         curve: "bls12-381".to_owned(),
         // TODO: We are using nocrypto here, mainly because I don't have ptau file large enough for the one with crypto.
@@ -123,7 +121,6 @@ fn compute_proof_testing_issuer_credential_bls12381_small_nocrypto_snarkjs() {
     let e = crate::witness::get_circuit(&circuit).unwrap();
 
     // Build the input (this could probably run without -F slow-tests)
-    let t0 = Instant::now();
     let input = presentation2input(
         e.params.expect("circuit has no params configured"),
         VP_LATE_SD_ENTRY,
@@ -135,7 +132,6 @@ fn compute_proof_testing_issuer_credential_bls12381_small_nocrypto_snarkjs() {
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
-    print_execution_time("Input preparation finished", t0);
 
     let prover = SnarkjsProver::new(circuit.zkey_path(), "bls12-381".to_owned()).unwrap();
     run_proof_with_witness_gen(&circuit, prover, input);
@@ -221,6 +217,7 @@ fn compute_proof_using_generated_credential_inner_with_prover<P: Prover>(
     add_decoy_claims: bool,
     get_prover: impl FnOnce(String) -> P,
 ) {
+    crate::init_tracing();
     let circuits = crate::witness::get_circuits();
     let e = circuits
         .get(circuit)
@@ -256,7 +253,6 @@ fn compute_proof_using_generated_credential_inner_with_prover<P: Prover>(
     sdjwt::verify_extract_claim(&presentation, "given_name").unwrap();
 
     // Build the input
-    let t0 = Instant::now();
     let input = presentation2input(
         e.params.expect("circuit has no params configured"),
         &presentation,
@@ -268,7 +264,6 @@ fn compute_proof_using_generated_credential_inner_with_prover<P: Prover>(
         ("in".to_owned(), input.input),
         ("value".to_owned(), input.value),
     ];
-    print_execution_time("Input preparation finished", t0);
 
     run_proof_with_witness_gen(circuit, get_prover(circuit.zkey_path()), input);
 }
@@ -413,31 +408,17 @@ fn run_proof_with_witness_gen(
     prover: impl Prover,
     input: Vec<(String, Vec<BigInt>)>,
 ) {
+    crate::init_tracing();
     let e = crate::witness::get_circuit(circuit).unwrap();
 
-    println!("INFO: Generating witness ...");
-    let t0 = Instant::now();
-    let wit = (e.compute_witness)(input);
-    print_execution_time("Witness generation finished", t0);
-
+    let wit = crate::compute_witness(&e, input);
     println!("{:?}", &wit[..200.min(wit.len())]);
 
     run_proof(prover, wit);
 }
 fn run_proof(prover: impl Prover, wit: Vec<BigInt>) {
-    println!("Loading zkey ...");
-    let t0 = Instant::now();
-    print_execution_time("ZKey loading finished", t0);
-
-    println!("INFO: Generating proof ...");
-    let t0 = Instant::now();
-    let proof = prover.prove_noverify(wit).unwrap();
-    print_execution_time("Proof generation finished", t0);
-
-    println!("INFO: Verifying proof ...");
-    let t0 = Instant::now();
-    let valid = prover.verify(&proof).unwrap();
-    print_execution_time("Proof verification finished", t0);
+    let proof = crate::prove(wit, &prover).unwrap();
+    let valid = crate::verify(&proof, &prover).unwrap();
 
     // Print the output in a more useful form
     if valid {

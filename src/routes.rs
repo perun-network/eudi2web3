@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Digest as _;
 use tower_http::services::ServeDir;
+use tracing::{debug, info, instrument, warn};
 
 use crate::{
     AppState, Binding, Job, ParsedPubInput, QueuedJob, UserError, prover::SnarkjsProof,
@@ -71,6 +72,7 @@ async fn circuits(State(state): State<Arc<AppState>>) -> Json<Vec<CircuitInfo>> 
 }
 
 /// Submit the address as the first step (will request a credential presentation)
+#[instrument(skip_all)]
 async fn submit_data(
     State(state): State<Arc<AppState>>,
     Json(data): Json<SubmitDataRequest>,
@@ -93,6 +95,7 @@ async fn submit_data(
             contributions: 1,
         }),
     });
+    info!(id, "Inserted partial job");
 
     let url = format!(
         "\
@@ -110,6 +113,8 @@ struct WalletRequest {
     wallet_nonce: String,
 }
 
+// EUDI wallet requests additional data about the authentication request and asks what we want.
+#[instrument(skip(w))]
 async fn vp_request(Path(id): Path<u64>, Form(w): Form<WalletRequest>) -> impl IntoResponse {
     // The wallet wants the certificate chain as base64 encoded DER. It probably can't be
     // self-signed. Easiest (+ recommended) way I've found was to use the TLS certificate.
@@ -204,30 +209,40 @@ struct VpToken {
 /// Endpoint to receive the credential
 ///
 /// See https://openid.net/specs/openid-connect-core-1_0.html
+#[instrument(skip(state, data))]
 async fn vp_auth(
     State(state): State<Arc<AppState>>,
     Path(id): Path<u64>,
     Form(data): Form<AuthData>,
 ) -> Result<(), StatusCode> {
     // Check if we got valid data
-    let mut vp_token: VpToken = serde_json::from_str(&data.vp_token).map_err(|_| {
-        println!("Wallet response is unexpected json: {}", data.vp_token);
+    let mut vp_token: VpToken = serde_json::from_str(&data.vp_token).map_err(|err| {
+        warn!(
+            ?err,
+            vp = data.vp_token,
+            "Could not json decode wallet response"
+        );
         StatusCode::BAD_REQUEST
     })?;
     let vp_token = vp_token.q0.pop().ok_or_else(|| {
-        println!("Wallet response contains no token: {}", data.vp_token);
+        warn!(vp = data.vp_token, "Wallet sent response without VPs");
         StatusCode::BAD_REQUEST
     })?;
 
-    // TODO: Extend checking by verifying the credential itself
+    // TODO: Extend checking by verifying the credential itself (and checking if the selected
+    // circuit is large enough). Though in practice we can't do much in that case (not easily at
+    // least).
     let mut guard = state.jobs.lock().await;
     // This isn't fully accurate, there is a small data race that can result in using the same pos
     // twice for example. But it is nonetheless accurate enough for progress bars.
-    let pos = state.queue_head.load(Ordering::Relaxed) + state.queue.len() as u64;
+    let queue_len = state.queue.len() as u64;
+    let pos = state.queue_head.load(Ordering::Relaxed) + queue_len;
     let old = guard.data.get_mut(&id).ok_or(StatusCode::NOT_FOUND)?;
     let Job::Partial { .. } = old else {
+        warn!(id, "Did not find job for this credential");
         return Err(StatusCode::NOT_FOUND);
     };
+    info!(id, pos, queue_len, "Putting the job into the queue");
     let mut job = Job::Queued { pos };
     std::mem::swap(old, &mut job);
     let Job::Partial {
@@ -260,6 +275,7 @@ struct StatusResponse {
     avg_processing_time: usize, // In Seconds
 }
 
+#[instrument(level = tracing::Level::TRACE, skip_all)]
 async fn status(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
     Json(StatusResponse {
         queue_head: state.queue_head.load(Ordering::Relaxed),
@@ -289,6 +305,7 @@ struct FinishedJob {
     tx: Option<String>,
 }
 
+#[instrument(level = tracing::Level::TRACE, skip(state))]
 async fn job_status(
     State(state): State<Arc<AppState>>,
     Path(id): Path<u64>,
@@ -304,12 +321,15 @@ async fn job_status(
             pos: pos - head,
             len: state.queue.len() as u64,
         },
-        Job::Completed(boxed) => JobStatusResponse::Success(Box::new(FinishedJob {
-            proof: (&boxed.proof).into(),
-            parsed: pubinput2parsed(&boxed.proof.pub_input),
-            pub_input: boxed.proof.to_snarkjs_pubinput(),
-            tx: boxed.tx.map(|tx| format!("0x{}", hex::encode(tx))),
-        })),
+        Job::Completed(boxed) => {
+            debug!("Sending job completion result");
+            JobStatusResponse::Success(Box::new(FinishedJob {
+                proof: (&boxed.proof).into(),
+                parsed: pubinput2parsed(&boxed.proof.pub_input),
+                pub_input: boxed.proof.to_snarkjs_pubinput(),
+                tx: boxed.tx.map(|tx| format!("0x{}", hex::encode(tx))),
+            }))
+        }
         Job::Error(e) => JobStatusResponse::Error(*e),
     }))
 }
