@@ -772,12 +772,7 @@ fn load_circuits(circuits: &mut HashMap<CircuitId, CircuitEntry>) {
     info!(count = circuits.len(), "Loading circuits/proving keys ...");
     for (id, e) in circuits {
         let zkey_path = id.zkey_path();
-        let span = info_span!(
-            "circuit",
-            circuit = id.circuit,
-            curve = id.curve,
-            contrib = id.contributions
-        );
+        let span = info_span!("circuit", %id);
         span.in_scope(|| {
             let prover: Box<dyn Prover> = match id.curve.as_str() {
                 "bn254" => Box::new(MultiuseProver::new(&zkey_path).unwrap()),
@@ -848,7 +843,7 @@ fn process_job(worker: usize, state: &Arc<AppState>, job: QueuedJob, rt: &tokio:
     };
 }
 
-#[instrument(skip_all, fields(circuit=job.circuit.circuit, curve=job.circuit.curve, contrib=job.circuit.contributions))]
+#[instrument(skip_all, fields(circuit=%job.circuit))]
 fn compute_proof(circuit: &CircuitEntry, job: &QueuedJob) -> Result<ProofWithPubInput, UserError> {
     // TODO: The user address should be part of the (public) zk input, otherwise someone could Just
     // copy the proof and use it for their own address.

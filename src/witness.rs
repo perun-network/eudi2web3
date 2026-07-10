@@ -30,6 +30,13 @@ pub struct CircuitId {
     pub circuit: String,
     pub contributions: usize,
 }
+
+impl std::fmt::Display for CircuitId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}.{}", self.curve, self.circuit, self.contributions)
+    }
+}
+
 /// Data/Config needed for processing, not used for circuit selection.
 #[derive(Debug)]
 pub struct CircuitEntry {
