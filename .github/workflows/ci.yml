@@ -58,6 +58,9 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
           make init
+      # This is way faster than generating it. The makefile doesn't do this because this setup ceremony isn't large enough for the full circuit.
+      - name: Download bls ptau file
+        run: curl -o ptau/bls12-381_17.ptau https://cardano-trusted-setup-test.s3.us-east-2.amazonaws.com/Cardano-PPOT-Results/pot23_final_17.ptau
       # NOTE: We are using the minimal circuit, for which way smaller ptau sizes are possible.
       - name: Compile circuit and generate key material
         env:
