@@ -15,4 +15,6 @@ me.addr
 # useful for debugging
 input.json
 constraint_counts.txt
+in.json
+proof.json
 
