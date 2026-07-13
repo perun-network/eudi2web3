@@ -2,10 +2,10 @@
 //! blueprint understands, thus allowing us to do parametrization without hard coding the vkey or
 //! building the plutus cbor manually.
 
-use std::{io::stdin, str::FromStr};
+use std::str::FromStr;
 
 use ark_ff::{BigInteger384, Zero};
-use hex::{FromHex, ToHex};
+use hex::ToHex;
 use num_bigint::BigUint;
 use pallas_primitives::{BigInt, Constr, Fragment, Int, MaybeIndefArray, PlutusData};
 
@@ -142,13 +142,6 @@ fn main() {
     }
 }
 
-fn hex_pad(s: &str) -> String {
-    if s.len() % 2 == 0 {
-        s.to_owned()
-    } else {
-        format!("0{s}")
-    }
-}
 fn dec2_32byte(s: &str) -> [u8; 32] {
     let n = BigUint::from_str(s).expect("invalid decimal");
     let bytes = n.to_bytes_be();

@@ -1,5 +1,6 @@
 use circom_prover::prover::circom::{G1, G2};
 use hex::{FromHex, ToHex};
+use num_bigint::BigUint;
 use num_traits::Zero;
 use pallas_addresses::{ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart};
 use pallas_primitives::{Constr, Fragment, MaybeIndefArray, NetworkId, PlutusData};
@@ -166,20 +167,21 @@ fn encode_redeemer(proof: &ProofWithPubInput) -> Vec<u8> {
 fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     dbg!(&proof.pub_input);
 
-    let [_, _, addr, claim_value_signals @ ..] = proof.pub_input.as_slice() else {
+    let [_, value @ .., pt1, pt2] = proof.pub_input.as_slice() else {
         unreachable!()
     };
 
     let mut claim_value = Vec::with_capacity(MAX_VALUE_BYTES);
-    for signal in claim_value_signals {
+    for signal in value {
         let mut sbytes = signal.to_bytes_le();
         sbytes.resize(31, 0);
         sbytes.reverse();
         claim_value.extend(sbytes);
     }
-    let addr = addr.to_bytes_be();
+    assert_eq!(pt1, &BigUint::from(1u64)); // CardanoShelley
+    let addr = pt2.to_bytes_be();
 
-    dbg!(&claim_value_signals, &claim_value, &addr);
+    dbg!(&value, &claim_value, &addr);
 
     // Intentionally invalidate proof for testing
     // claim_value[30] = 0x42;

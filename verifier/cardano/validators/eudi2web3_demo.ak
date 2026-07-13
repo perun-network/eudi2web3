@@ -30,8 +30,8 @@ validator eudi2web3_demo(vk: SnarkVerificationKey) {
     _self: Transaction,
   ) {
     let public = [
-      bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 0, 31)),
-      bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 32, 63)),
+      bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 0, 30)),
+      bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 31, 61)),
       1,
       bytearray.to_int_big_endian(redeemer.addr),
     ]
