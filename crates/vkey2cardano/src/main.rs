@@ -2,8 +2,10 @@
 //! blueprint understands, thus allowing us to do parametrization without hard coding the vkey or
 //! building the plutus cbor manually.
 
+use std::{io::stdin, str::FromStr};
+
 use ark_ff::{BigInteger384, Zero};
-use hex::ToHex;
+use hex::{FromHex, ToHex};
 use num_bigint::BigUint;
 use pallas_primitives::{BigInt, Constr, Fragment, Int, MaybeIndefArray, PlutusData};
 
@@ -24,46 +26,138 @@ struct SnarkJsVkey {
     #[serde(rename = "IC")]
     ic: Vec<G1Hex>,
 }
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct SnarkjsProof {
+    pub protocol: String,
+    pub curve: String,
+    pub pi_a: G1Hex,
+    pub pi_b: G2Hex,
+    pub pi_c: G1Hex,
+}
 
 fn main() {
     let vkey_path = std::env::args().nth(1).unwrap();
+    let format = std::env::args().nth(2);
     let vkey = std::fs::read_to_string(vkey_path).unwrap();
     let vkey: SnarkJsVkey = serde_json::from_str(&vkey).unwrap();
 
     assert_eq!(vkey.protocol, "groth16");
     assert_eq!(vkey.curve, "bls12381");
 
-    const TAG_CONSTR_0: u64 = 121;
+    match format.as_deref() {
+        None | Some("blueprint") => {
+            const TAG_CONSTR_0: u64 = 121;
 
-    let pdata = PlutusData::Constr(Constr {
-        tag: TAG_CONSTR_0,
-        any_constructor: None,
-        fields: MaybeIndefArray::Def(vec![
-            PlutusData::BigInt(BigInt::Int(Int(vkey.n_public.into()))),
-            PlutusData::BoundedBytes(g1hex2bytes(vkey.vk_alpha_1).into()),
-            PlutusData::BoundedBytes(g2hex2bytes(vkey.vk_beta_2).into()),
-            PlutusData::BoundedBytes(g2hex2bytes(vkey.vk_gamma_2).into()),
-            PlutusData::BoundedBytes(g2hex2bytes(vkey.vk_delta_2).into()),
-            PlutusData::Array(MaybeIndefArray::Def(
-                vkey.vk_alphabeta_12
-                    .into_iter()
-                    .map(|v| PlutusData::BoundedBytes(g2hex2bytes(v).into()))
-                    .collect(),
-            )),
-            PlutusData::Array(MaybeIndefArray::Def(
-                vkey.ic
-                    .into_iter()
-                    .map(|e| PlutusData::BoundedBytes(g1hex2bytes(e).into()))
-                    .collect(),
-            )),
-        ]),
-    });
+            let pdata = PlutusData::Constr(Constr {
+                tag: TAG_CONSTR_0,
+                any_constructor: None,
+                fields: MaybeIndefArray::Def(vec![
+                    PlutusData::BigInt(BigInt::Int(Int(vkey.n_public.into()))),
+                    PlutusData::BoundedBytes(g1hex2bytes(vkey.vk_alpha_1).into()),
+                    PlutusData::BoundedBytes(g2hex2bytes(vkey.vk_beta_2).into()),
+                    PlutusData::BoundedBytes(g2hex2bytes(vkey.vk_gamma_2).into()),
+                    PlutusData::BoundedBytes(g2hex2bytes(vkey.vk_delta_2).into()),
+                    PlutusData::Array(MaybeIndefArray::Def(
+                        vkey.vk_alphabeta_12
+                            .into_iter()
+                            .map(|v| PlutusData::BoundedBytes(g2hex2bytes(v).into()))
+                            .collect(),
+                    )),
+                    PlutusData::Array(MaybeIndefArray::Def(
+                        vkey.ic
+                            .into_iter()
+                            .map(|e| PlutusData::BoundedBytes(g1hex2bytes(e).into()))
+                            .collect(),
+                    )),
+                ]),
+            });
 
-    let pdata = pdata.encode_fragment().unwrap();
+            let pdata = pdata.encode_fragment().unwrap();
 
-    // Format for cunsumption by `aiken blueprint apply`
-    let pdata: String = pdata.encode_hex();
-    println!("{pdata}");
+            // Format for cunsumption by `aiken blueprint apply`
+            let pdata: String = pdata.encode_hex();
+            println!("{pdata}");
+        }
+        Some("ak") => {
+            println!(
+                "let vk = SnarkVerificationKey {{
+                    nPublic: {},
+                    vkAlpha: #\"{}\",
+                    vkBeta: #\"{}\",
+                    vkGamma: #\"{}\",
+                    vkDelta: #\"{}\",
+                    vkAlphaBeta: [
+                        #\"{}\",
+                        #\"{}\",
+                    ],
+                    vkIC: [",
+                vkey.n_public,
+                g1hex2bytes(vkey.vk_alpha_1).encode_hex::<String>(),
+                g2hex2bytes(vkey.vk_beta_2).encode_hex::<String>(),
+                g2hex2bytes(vkey.vk_gamma_2).encode_hex::<String>(),
+                g2hex2bytes(vkey.vk_delta_2).encode_hex::<String>(),
+                g2hex2bytes(vkey.vk_alphabeta_12[0].clone()).encode_hex::<String>(),
+                g2hex2bytes(vkey.vk_alphabeta_12[1].clone()).encode_hex::<String>(),
+            );
+            for ic in vkey.ic {
+                println!("#\"{}\",", g1hex2bytes(ic).encode_hex::<String>());
+            }
+            println!("],\n}}");
+
+            // Try reading the proof json (as outputted in the front-end) rom stdin and convert it to the redeemer source code.
+            // Useful for writing tests.
+            let Ok(s) = std::fs::read_to_string("proof.json") else {
+                return;
+            };
+            let p: SnarkjsProof = serde_json::from_str(&s).unwrap();
+            let Ok(s) = std::fs::read_to_string("in.json") else {
+                return;
+            };
+            let inputs: Vec<String> = serde_json::from_str(&s).unwrap();
+            assert_eq!(inputs.len(), 4);
+            let mut value = [0; 64];
+            value[..32].copy_from_slice(&dec2_32byte(&inputs[0]));
+            value[32..].copy_from_slice(&dec2_32byte(&inputs[1]));
+            assert_eq!(inputs[2], "1"); // CardanoShelley
+            let addr = dec2_32byte(&inputs[3]);
+            println!(
+                "
+                let redeemer = Redeemer {{
+                    proof: Proof {{
+                        piA: #\"{}\",
+                        piB: #\"{}\",
+                        piC: #\"{}\",
+                    }},
+                    value: #\"{}\",
+                    addr: #\"{}\",
+                }}",
+                g1hex2bytes(p.pi_a).encode_hex::<String>(),
+                g2hex2bytes(p.pi_b).encode_hex::<String>(),
+                g1hex2bytes(p.pi_c).encode_hex::<String>(),
+                value.encode_hex::<String>(),
+                addr.encode_hex::<String>(),
+            )
+        }
+        Some(_) => eprintln!("Unexpected format"),
+    }
+}
+
+fn hex_pad(s: &str) -> String {
+    if s.len() % 2 == 0 {
+        s.to_owned()
+    } else {
+        format!("0{s}")
+    }
+}
+fn dec2_32byte(s: &str) -> [u8; 32] {
+    let n = BigUint::from_str(s).expect("invalid decimal");
+    let bytes = n.to_bytes_be();
+
+    assert!(bytes.len() <= 32, "value exceeds 256 bits");
+
+    let mut out = [0u8; 32];
+    out[32 - bytes.len()..].copy_from_slice(&bytes);
+    out
 }
 
 // See https://cips.cardano.org/cip/CIP-0381#names-and-typeskinds-for-the-new-functions-or-types
