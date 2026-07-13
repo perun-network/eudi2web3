@@ -15,9 +15,12 @@ fi
 # Transfer all other files needed to run the server
 rsync -av \
     --include 'fubar_*.pem' \
+    --include 'me.addr' \
+    --include 'me.sk' \
     --include 'zkey/' \
     --include 'zkey/bls12-381/' \
     --include 'zkey/bls12-381/*.0001.zkey' \
+    --include 'zkey/bls12-381/*.cardano.json' \
     --include 'zkey/bn254/' \
     --include 'zkey/bn254/small*.0001.zkey' \
     --exclude='*' \
@@ -34,6 +37,8 @@ ssh zombienet TAG="$TAG" '
         -v "$PWD/eudi/zkey:/zkey:ro" \
         -v "$PWD/eudi/fubar_cert.pem:/fubar_cert.pem:ro" \
         -v "$PWD/eudi/fubar_privkey.pem:/fubar_privkey.pem:ro" \
+        -v "$PWD/eudi/me.addr:/me.addr:ro" \
+        -v "$PWD/eudi/me.sk:/me.sk:ro" \
      	"eudi2web3:$TAG"
 '
 
