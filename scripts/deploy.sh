@@ -34,6 +34,7 @@ ssh zombienet TAG="$TAG" '
         --name eudi2web3 \
         --restart unless-stopped \
         -p 8080:8080 \
+        --env-file $PWD/eudi/.env \
         -v "$PWD/eudi/zkey:/zkey:ro" \
         -v "$PWD/eudi/fubar_cert.pem:/fubar_cert.pem:ro" \
         -v "$PWD/eudi/fubar_privkey.pem:/fubar_privkey.pem:ro" \
