@@ -30,11 +30,10 @@ validator eudi2web3_demo(vk: SnarkVerificationKey) {
     _self: Transaction,
   ) {
     let public = [
+      bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 0, 31)),
+      bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 32, 63)),
       1,
-      // Binding format: CardanoShelley
       bytearray.to_int_big_endian(redeemer.addr),
-      ..// The address this is bound to
-      bytes_to_ints(redeemer.value, 31)
     ]
 
     // The claim value
@@ -207,6 +206,51 @@ test proof_verify() {
 
   // This proof didn't have that.
   let public = bytes_to_ints(redeemer.value, 31)
+  let res = groth_verify(vk, redeemer.proof, public)
+  if res {
+    True
+  } else {
+    fail
+  }
+}
+
+test proof_verify_with_addr_binding() {
+  // cargo run --bin vkey2cardano zkey/bls12-381/small.vkey.json ak
+  let vk = SnarkVerificationKey {
+    nPublic: 4,
+    vkAlpha: #"8749c3498a0bb1923c8abfecb448d720f0cdde7786eecd4372e7370e11c19cf18ac6fabd8bce2b89f5fddab86c35e227",
+    vkBeta: #"8720f72462815b51073a159344221b0658bd7627d6245c498b41061bca0ab10df49c91f67fef7953b599a730593e067413ad5bf4d371957a89810c6ab2564af3c5ce982fbdd5c0a5fa30ca0210c96de01f6adeae2a4d6e61067ecf04200c9b75",
+    vkGamma: #"93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8",
+    vkDelta: #"82c8daf1553d819abe5b2da60484976f864fb940d6373bfd3d0c4aed0f80ba1a3be3adadf0ea1f78f07af7954e4cbf5900fd7462f098ffd18713b4cf899763b4cee39034f3a8198f42bb6a5396f1d95abccc1773b614831a8ccbf8ba3474a580",
+    vkAlphaBeta: [
+      #"8b3be694e8693acd5302927c289006cd0a2d5d0dfada8f4a9650a2f8c784d07148bdbdb63864553c4c92f365d2f11b431014f3f6192ec9637ee533d6451c9e4dca32d61c6ec2e9ab4a212f230fa48b03645b197488bdfefcce94554d8d3ff0d1",
+      #"91e71557563862221c711c94904f0b38d155f4b32e24b8064f5a63588d01c8bc0cea30858cd7f82c637800aae27079a9048586422b12d10cc8cd96fc96d9fe2e1e081bdb02267d2a9a1491ee0df13564de3975228a0ba74d20614bd005d0c2b7",
+    ],
+    vkIC: [
+      #"a20d3decba485470f337a97a69f193741cfbd7de7c4505f7f2d630a1c819cf555ba97c1305d0165527d16c613e0b00df",
+      #"814447e6903da9e5439deec24043f1733b21ee659b5b7508b5755616ea6ff321c11ced2a7ed2c124b6ea6109a99c01fc",
+      #"8145380c6643d7232cca7c2abb10431e0d3b0c0d3596388c2db670e687a382dbd802bb9a20b26da74490c5aafceab4ac",
+      #"a81f6d22cd9297d87aa1fae2a8ae86d5a88918e76dc9a562b856bc85ca3f0b7437b8aa7dfffca8f08c439423398e060c",
+      #"af02d8a5c581891bf2a068dbb0eba8c600a7d1d78940c4c48123673762442100490241f2bb221529f6019150749dee98",
+    ],
+  }
+
+  let redeemer = Redeemer {
+    proof: Proof {
+      piA: #"a1d2738b858967aa3db230bbe101e0d001bb556c768321d9ac29143a21fd8d31e93eae4cb0e8cbc515b532dde5f2a2a8",
+      piB: #"9009c68bcbf0b333c1d8a9a4daf96df090392737c1617fb061d988f4ede7b918ea118940f998640ae347a3178c5b8edf170f7103eee65fef553e98810cb58fa23e67fc5ec6fcb182831eaec2fc8eaa96e6ed82d3af498d890114fa8357295495",
+      piC: #"b7acde564d36f83803ae13e771e089ffc6928278d05f73015808b140eb80882e1672618ffd7aed2d6ccf8db37734fd05",
+    },
+    value: #"002022666f6f62617231322200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    addr: #"0000000088c715cb222674dbfe7509339a74d015dbd157c281bc036e048d753e",
+  }
+
+  let public = [
+    bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 0, 31)),
+    bytearray.to_int_big_endian(bytearray.slice(redeemer.value, 32, 63)),
+    1,
+    bytearray.to_int_big_endian(redeemer.addr),
+  ]
   let res = groth_verify(vk, redeemer.proof, public)
   if res {
     True
