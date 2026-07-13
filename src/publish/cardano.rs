@@ -13,7 +13,7 @@ use tracing::{debug, info, instrument};
 
 use crate::{MAX_VALUE_BYTES, prover::ProofWithPubInput};
 
-const BLOCKFROST_URL: &str = "https://cardano-preview.blockfrost.io/api/v0";
+const BLOCKFROST_URL: &str = "https://cardano-preprod.blockfrost.io/api/v0";
 
 // TODO: This file contains a bunch of methods using unwrap instead of having proper error
 // forwarding or retries.
