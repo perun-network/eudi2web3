@@ -26,7 +26,7 @@ use crate::{
 };
 
 // Generated code to go from input to witness.
-mod witness;
+pub mod witness;
 
 pub mod publish {
     pub mod cardano;
@@ -103,14 +103,14 @@ FgGdpr4oyrFB9daZyRIcP90=
 ";
 
 #[derive(Debug)]
-struct CircuitInput {
-    input: Vec<BigInt>,
-    value: Vec<BigInt>,
+pub struct CircuitInput {
+    pub input: Vec<BigInt>,
+    pub value: Vec<BigInt>,
 }
 
 // Errors that should be shown to the user.
 #[derive(Debug, Serialize, Copy, Clone, PartialEq, Eq)]
-enum UserError {
+pub enum UserError {
     JwtTooLarge,
     HeaderTooLarge,
     ValueTooLarge,
@@ -153,7 +153,7 @@ struct SegmentSize {
 
 // TODO: This function is a mess.
 #[instrument(skip_all)]
-fn presentation2input(
+pub fn presentation2input(
     params: CircuitParams,
     presentation: &str,
 ) -> Result<CircuitInput, UserError> {
@@ -334,17 +334,6 @@ fn presentation2input(
     // of a string.
     let payload_off = header.len() + 1 + (pos.key_start_quote - 1) / 3 * 4;
     let json_align = (pos.key_start_quote - 1) % 3;
-    dbg!(
-        &pos,
-        payload_off,
-        json_align,
-        distance2quote,
-        seg0_payload_off,
-        seg0_json_align,
-        &value,
-        message.len(),
-        message,
-    );
 
     let segment_sizes = match segments.len() {
         0 | 1 => unreachable!(), // Checked by code above
@@ -385,15 +374,14 @@ fn presentation2input(
         _ => unimplemented!("Currently does not support arbitrary disclosure counts"),
     };
 
-    let size = PresentationSize {
+    // TODO: We probably want to store this in a file or DB so we can see which sizes are actually
+    // relevant for improving circuit sizes.
+    let _ = PresentationSize {
         sig_alg,
         hash_alg: HashAlg::Sha2_256, // TODO: Check that in the JWT body.
         header: header.len(),
         segments: segment_sizes,
     };
-    // TODO: We probably want to store this in a file or DB so we can see which sizes are actually
-    // relevant for improving circuit sizes.
-    dbg!(size);
 
     // Various checks whether the circuit can process this VP
     if sha2padded_len(message.len()) > params.payload {

@@ -86,7 +86,6 @@ pub fn find_array_follower_by_str_value<'a>(
     data: &'a [u8],
     value_to_find: &str,
 ) -> serde_json::Result<Option<Position<'a>>> {
-    dbg!(value_to_find);
     let mut deserializer = serde_json::Deserializer::new(SliceRead::new(data));
     let raw = deserializer.deserialize_seq(StrValueSiblingFinderVisitor {
         value: value_to_find,

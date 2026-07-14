@@ -244,6 +244,7 @@ fn compute_proof_using_generated_credential_inner_with_prover<P: Prover>(
     };
     let presentation =
         sdjwt::new_presentation(claims, sd_strategy, claims_to_disclose, add_decoy_claims).unwrap();
+    dbg!(&presentation);
 
     sdjwt::explain(&presentation);
     println!("{}", "-".repeat(100));

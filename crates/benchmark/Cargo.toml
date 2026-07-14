@@ -1,0 +1,18 @@
+[package]
+name = "benchmark"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dev-dependencies]
+criterion = "0.8"
+eudi2web3.path = "../.."
+
+[[bench]]
+name = "witness_gen"
+harness = false
+
+[dependencies]
+num-bigint = "0.4"
+tempfile = "3.27.0"
+
