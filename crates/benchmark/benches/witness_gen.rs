@@ -94,6 +94,19 @@ fn sha_only(c: &mut Criterion) {
         .bench_function("w2c2", |b| {
             b.iter(|| (circuit.compute_witness)(vec![("in".to_owned(), vec![BigInt::ZERO; 512])]))
         });
+    g.bench_function("cpp_exe", |b| {
+        b.iter(|| {
+            let success = Command::new("zkey/bn254/only_sha_cpp/only_sha")
+                .arg(&input_path)
+                .arg(&output_path)
+                .spawn()
+                .unwrap()
+                .wait()
+                .unwrap()
+                .success();
+            assert!(success);
+        })
+    });
     g.sample_size(10)
         .sampling_mode(SamplingMode::Flat)
         .measurement_time(Duration::from_secs(30))

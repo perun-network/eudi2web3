@@ -97,7 +97,7 @@ zkey/bn254/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
 	mkdir -p zkey/bn254
 	@echo -e "\x1b[96mCompiling $*\x1b[0m"
 	@# circom uses a different naming scheme
-	time circom $< -l circuits -o zkey/bn254 --r1cs --wasm -p bn128 --sym
+	time circom $< -l circuits -o zkey/bn254 --r1cs --wasm -p bn128 --sym --c
 	cargo clean -p eudi2web3
 
 zkey/bls12-381/%.r1cs: circuits/%.circom $(CIRCOM_SRC)
