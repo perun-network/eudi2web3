@@ -65,15 +65,17 @@ pub async fn deploy(path: &str) {
 
     dbg!(tx.tx_bytes.encode_hex::<String>());
 
-    // dbg!(&tx);
-
+    info!(
+        hash = hex::encode(tx.tx_hash.0.as_ref()),
+        tx = hex::encode(&tx.tx_bytes.0),
+        "Submitting transaction"
+    );
     submit_tx(tx.tx_bytes.0).await;
 }
 
 #[instrument(skip_all)]
 pub async fn publish(script_path: &str, proof: &ProofWithPubInput) -> [u8; 32] {
     let redeemer = encode_redeemer(proof);
-    dbg!(hex::encode(&redeemer));
     publish_inner(script_path, redeemer).await
 }
 
@@ -83,6 +85,7 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     let addr = tokio::fs::read_to_string("me.addr").await.unwrap();
     let (_, _, script_addr) = script_bytecode(script_path).await;
 
+    debug!(%script_addr, redeemer=hex::encode(&redeemer));
     dbg!(&script_addr);
     dbg!(script_addr.to_bech32().unwrap());
 
@@ -98,7 +101,7 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
     let input_fees = select_utxo(&utxos, fee + min_balance);
 
     let script_utxos = get_utxos(&script_addr.to_bech32().unwrap()).await;
-    dbg!(&script_utxos);
+    debug!(?script_utxos);
     let script_ref = script_utxos
         .iter()
         .find(|u| u.reference_script_hash.is_some())
@@ -107,8 +110,6 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
         .iter()
         .find(|u| u.reference_script_hash.is_none())
         .unwrap();
-
-    dbg!(&script_ref, &script_locked, input_fees);
 
     let addr = pallas_addresses::Address::from_bech32(&addr).unwrap();
 
@@ -131,8 +132,6 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
         )
         .language_view(PlutusV3, cost_model)
         .fee(fee);
-    dbg!(&tx.inputs);
-    dbg!(script_locked.to_input());
     let ex_units = eval_execution_units(&tx, script_locked.to_input(), redeemer.clone()).await;
     // let ex_units = ExUnits {     // From testing     aiken check estimate
     //     mem: 80_000,             // 76_865           57.75 k
@@ -143,19 +142,19 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
         .build_conway_raw()
         .unwrap();
 
-    debug!(
-        mem = ex_units.mem,
-        steps = ex_units.steps,
-        tx_bytes = tx.tx_bytes.0.encode_hex::<String>(),
-        "Transaction"
-    );
-
     let sk = read_sk().await;
     // Sign changes tx.tx_bytes (adding the signature)
     let tx = tx.sign(sk).unwrap();
 
-    dbg!(tx.tx_bytes.encode_hex::<String>());
+    dbg!(hex::encode(&tx.tx_bytes));
 
+    info!(
+        hash = hex::encode(tx.tx_hash.0.as_ref()),
+        mem = ex_units.mem,
+        steps = ex_units.steps,
+        tx = hex::encode(&tx.tx_bytes.0),
+        "Submitting transaction"
+    );
     submit_tx(tx.tx_bytes.0).await;
 
     tx.tx_hash.0
@@ -166,8 +165,6 @@ fn encode_redeemer(proof: &ProofWithPubInput) -> Vec<u8> {
 }
 
 fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
-    dbg!(&proof.pub_input);
-
     let [_, value @ .., pt1, pt2] = proof.pub_input.as_slice() else {
         unreachable!()
     };
@@ -181,8 +178,6 @@ fn build_redeemer(proof: &ProofWithPubInput) -> PlutusData {
     }
     assert_eq!(pt1, &BigUint::from(1u64)); // CardanoShelley
     let addr = pt2.to_bytes_be();
-
-    dbg!(&value, &claim_value, &addr);
 
     // Intentionally invalidate proof for testing
     // claim_value[30] = 0x42;
@@ -477,7 +472,6 @@ async fn eval_execution_units(
         .build()
         .unwrap();
 
-    dbg!(&req);
     let res = client.execute(req).await.unwrap().text().await.unwrap();
     dbg!(&res);
 
