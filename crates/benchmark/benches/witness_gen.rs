@@ -128,5 +128,8 @@ fn sha_only(c: &mut Criterion) {
     // c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
 }
 
+// The function we'd need to replace (note that 100 may change on circuit changes).
+// void Sha256compression_100_run(uint ctx_index,Circom_CalcWit* ctx);
+
 criterion_group!(benches, sha_only);
 criterion_main!(benches);
