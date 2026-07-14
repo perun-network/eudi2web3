@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tokio::net::{TcpListener, UnixListener};
 use tracing::{debug, error, info, info_span, instrument, trace, warn};
-use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 use x509_parser::prelude::{FromDer, X509Certificate};
 
 use crate::{
@@ -726,6 +726,11 @@ pub fn init_tracing() {
     INIT.call_once(|| {
         let res = tracing_subscriber::fmt()
             .with_writer(std::io::stderr)
+            .with_env_filter(
+                EnvFilter::try_from_default_env()
+                    .or_else(|_| EnvFilter::try_new("info"))
+                    .unwrap(),
+            )
             .with_span_events(FmtSpan::CLOSE)
             .try_init();
 
