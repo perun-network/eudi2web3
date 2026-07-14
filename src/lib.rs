@@ -66,9 +66,6 @@ mod sdjwt;
 #[cfg(test)]
 mod test;
 
-#[cfg(test)]
-mod test_sha_custom;
-
 // Configuration of the circuit (must be the same as in the circom file),
 // only contains values that are the same for all circuits, the others are defined in
 // witness::circuit_params.

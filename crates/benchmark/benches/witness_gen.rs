@@ -1,8 +1,12 @@
 use criterion::{Criterion, SamplingMode, criterion_group, criterion_main};
-use eudi2web3::{presentation2input, witness::CircuitId};
+use eudi2web3::witness::{
+    CircuitId,
+    sha::{BitSignalVisitor, SHA256COMPRESSION_SIGNAL_COUNT, WitAssertEq, wit_sha256compression},
+};
 use num_bigint::BigInt;
-use std::{hint::black_box, io::Write, path::Path, process::Command, time::Duration};
+use std::{fs::File, hint::black_box, io::Write, path::Path, process::Command, time::Duration};
 use tempfile::tempdir;
+use wtns_file::WtnsFile;
 
 /*
 const VP_TINY: &str = "eyJhbGciOiJFUzI1NiJ9.eyJfc2QiOlsicXNqNXkzMnV0M3V3MGJYeHFqUjE1WTJwcUxJMGdXYThjYkNuSm9RTUZ3VSJdLCJfc2RfYWxnIjoic2hhLTI1NiIsImlzcyI6ImkiLCJleHAiOjE4ODMwMDAwMDB9.pDAQ6qh5fSTNPYLHScZXtpsZZErn_yWE5BwFyWVM2E4rOXjRBS_DYZ0bc9gl30ORJzyfuc3khOygGQ50pZIqIA~WyJLZ01NZ3JkeVRaLXhaR1ZCdU02NUFBIiwgImdpdmVuX25hbWUiLCAiZm9vYmFyIl0~";
@@ -128,8 +132,109 @@ fn sha_only(c: &mut Criterion) {
     // c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
 }
 
+fn sha_compression(c: &mut Criterion) {
+    let tmp_dir = tempdir().unwrap();
+    let input_path = tmp_dir.path().join("input.json");
+    let output_path = tmp_dir.path().join("output.wtns");
+
+    let mut f = std::fs::File::create(&input_path).unwrap();
+    write!(f, r#"{{"in":["#).unwrap();
+    write!(f, r#""1","#).unwrap();
+    for _ in 1..511 {
+        write!(f, r#""0","#).unwrap();
+    }
+    write!(f, r#""0""#).unwrap();
+    write!(f, "]}}").unwrap();
+    f.sync_all().unwrap();
+    drop(f);
+
+    // "" (padded)
+    let input = [1 << 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let success = Command::new("zkey/bn254/only_sha_cpp/only_sha")
+        .arg(&input_path)
+        .arg(&output_path)
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap()
+        .success();
+    assert!(success);
+
+    // Read back the witness values
+    let f = File::open(&output_path).unwrap();
+    let wtns: WtnsFile<32> = WtnsFile::read(f).unwrap();
+
+    let wtns: Vec<BigInt> = wtns
+        .witness
+        .0
+        .into_iter()
+        .map(|s| BigInt::from_bytes_le(num_bigint::Sign::Plus, s.as_bytes()))
+        .collect();
+    let start = 1806;
+
+    // End of preparation to get the expected witness array.
+
+    let mut g = c.benchmark_group("sha_compression");
+
+    g.sample_size(50).bench_function("assert_eq", |b| {
+        b.iter(|| wit_sha256compression(input, &mut WitAssertEq(&wtns[start..])))
+    });
+    g.bench_function("nop", |b| {
+        b.iter(|| wit_sha256compression(input, &mut NopSignalVisitor))
+    });
+    g.bench_function("blackbox", |b| {
+        b.iter(|| wit_sha256compression(input, &mut BlackboxSignalVisitor))
+    });
+    g.bench_function("collect_bigint", |b| {
+        b.iter(|| {
+            wit_sha256compression(
+                input,
+                &mut BigIntCollectSignalVisitor(vec![BigInt::ZERO; SHA256COMPRESSION_SIGNAL_COUNT]),
+            );
+        })
+    });
+    assert_eq!(SHA256COMPRESSION_SIGNAL_COUNT.div_ceil(64), 480);
+    g.bench_function("collect_bits", |b| {
+        b.iter(|| wit_sha256compression(input, &mut BitCollectSignalVisitor(vec![0_u64; 480])))
+    });
+}
+
+struct NopSignalVisitor;
+impl BitSignalVisitor for NopSignalVisitor {
+    fn visit_bool(&mut self, _: usize, _: bool) {}
+    fn visit_u32(&mut self, _: usize, _: u32) {}
+}
+
+struct BlackboxSignalVisitor;
+impl BitSignalVisitor for BlackboxSignalVisitor {
+    fn visit_bool(&mut self, bitpos: usize, value: bool) {
+        black_box(bitpos);
+        black_box(value);
+    }
+    fn visit_u32(&mut self, bitpos: usize, value: u32) {
+        black_box(bitpos);
+        black_box(value);
+    }
+}
+
+struct BigIntCollectSignalVisitor(Vec<BigInt>);
+impl BitSignalVisitor for BigIntCollectSignalVisitor {
+    fn visit_bool(&mut self, bitpos: usize, value: bool) {
+        if value {
+            self.0[bitpos] = BigInt::from(1);
+        }
+    }
+}
+struct BitCollectSignalVisitor(Vec<u64>);
+impl BitSignalVisitor for BitCollectSignalVisitor {
+    fn visit_bool(&mut self, bitpos: usize, value: bool) {
+        self.0[bitpos / 64] |= (value as u64) << (bitpos % 64)
+    }
+}
+
 // The function we'd need to replace (note that 100 may change on circuit changes).
 // void Sha256compression_100_run(uint ctx_index,Circom_CalcWit* ctx);
 
-criterion_group!(benches, sha_only);
+criterion_group!(benches, sha_only, sha_compression);
 criterion_main!(benches);

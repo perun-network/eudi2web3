@@ -474,6 +474,7 @@ dependencies = [
  "eudi2web3",
  "num-bigint",
  "tempfile",
+ "wtns-file",
 ]
 
 [[package]]

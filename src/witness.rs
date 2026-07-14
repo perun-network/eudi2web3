@@ -8,6 +8,9 @@ use crate::prover::Prover;
 
 // Contains non-mangled symbols called from C
 mod runtime;
+
+pub mod sha;
+
 #[cfg(test)]
 mod tests;
 
