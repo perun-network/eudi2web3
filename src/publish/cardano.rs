@@ -88,9 +88,10 @@ async fn publish_inner(script_path: &str, redeemer: Vec<u8>) -> [u8; 32] {
 
     // Build inputs
 
-    // Without CIP-33: 400_000
-    // With    CIP-33: 365_000
-    let fee = 365_000;
+    // nPublic          2       4
+    // Without CIP-33:  400_000 -
+    // With    CIP-33:  365_000 387_000
+    let fee = 390_000;
     let min_balance = 4_000_000;
 
     let utxos = get_utxos(&addr).await;

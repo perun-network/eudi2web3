@@ -2,6 +2,9 @@ set -e
 
 TAG=$(git describe --always --dirty --abbrev=7)
 
+# Update contract json files (are published via rsync and are not in the docker image).
+make zkey/bls12-381/{small,tiny}{,_nocrypto}.cardano.json
+
 # Build docker image
 docker build -t "eudi2web3:$TAG" .
 
